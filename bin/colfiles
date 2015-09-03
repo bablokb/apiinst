@@ -1,0 +1,39 @@
+#!/bin/bash
+#
+# Collect modified files after initial configuration into an tar-archive.
+#
+# You should copy this file to an USB-stick, plug it into your Pi,
+# mount it and run it:
+#
+# sudo mount /dev/sda /mnt
+# sudo /mnt/colfiles
+# sudo umount /mnt
+#
+# You will then find an archive named modified_files.tgz on the stick.
+# The contents of this file should go into your template directory.
+#
+# $Author: bablokb $
+# $Revision: 1.5 $
+#
+# License: GPL3
+# -----------------------------------------------------------------------------
+
+if [ "$UID" != "0" ]; then
+  echo -e "error: this script must be run as root!" >&2
+  exit 3
+fi
+
+targetDir=$(dirname $0)
+
+
+# find modified files but not below /var, /tmp or /home
+# and exclude some spurious temporary files from /etc
+
+find / /boot -xdev \
+     \( -path "/var" -o -path "/home" -o -path "/tmp" \) -prune -o \
+        \( -type f -o -type l \) \
+        ! -path "/etc/mtab" \
+        ! -path "/etc/.fstab" \
+        ! -path "/etc/dhcpcd.duid" \
+        -mtime -1 -print | \
+  tar -cvzpf "$targetDir/apiinst_files.tgz" -T -

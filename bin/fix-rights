@@ -1,0 +1,28 @@
+#!/bin/bash 
+#
+# Fix ownership and access-rights for files in the template dir
+#
+# $Author: bablokb $
+# $Revision: 1.5 $
+#
+# License: GPL3
+# -----------------------------------------------------------------------------
+
+if [ -z "$1" ]; then
+  echo -e "usage: $(basename $0) template-dir" >&2
+  exit 3
+fi
+
+if [ "$UID" != "0" ]; then
+  echo -e "error: this script must be run as root!" >&2
+  exit 3
+fi
+
+# for /usr/local it should be root:staff, but we don't know if
+# staff on the offline-machine matches staff on the Pi
+
+chown -R root:root "$1/etc" \
+                   "$1/usr"
+
+chmod 744       "$1/etc/rc.local" \
+                "$1/usr/local/sbin/apiinst2"

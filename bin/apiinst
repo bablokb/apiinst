@@ -1,0 +1,599 @@
+#!/bin/bash
+#
+# Write an (Raspberry Pi) image of a sd-card to a physical sd-card and
+# copy files from template directories to the sd-card.
+#
+# The program supports raw image files and images compressed with gz or zip.
+# If your internet-connection is stable and you see no need to store
+# the image locally, you can also use a http-url as a source.
+# 
+# TODO:
+# 
+# Test cases:
+#   - direct http download
+#   + simple dd:                    apiinst -i img -t /dev/sdb -n
+#   + expand root:                  apiinst -i img -t /dev/sdb
+#   + create home (512M):           apiinst -i img -t /dev/sdb -H 512M
+#   + create home (512M, no exp):   apiinst -i img -t /dev/sdb -H 512M -n
+#   + create home (rest):           apiinst -i img -t /dev/sdb -H rest
+#   + create swap (512M):           apiinst -i img -t /dev/sdb -S 512M
+#   + create swap (512M, no exp):   apiinst -i img -t /dev/sdb -S 512M -n
+#   + create swap (rest):           apiinst -i img -t /dev/sdb -S rest
+#   + create home (rest) and swap:  apiinst -i img -t /dev/sdb -H rest -S 512M
+#   + create home and swap (rest):  apiinst -i img -t /dev/sdb -H 512M -S rest
+#   + create home and swap:         apiinst -i img -t /dev/sdb -H 512M -S 512M
+#   + create home and swap (no ex): apiinst -i img -t /dev/sdb -H 512M -S 512M -n
+# 
+# $Author: bablokb $
+# $Revision: 1.5 $
+#
+# License: GPL3
+# -----------------------------------------------------------------------------
+
+# check program prerequisites   -----------------------------------------------
+
+checkPrereqs() {
+  local p pgms="fdisk funzip gunzip bunzip2 dd partprobe bc sfdisk resize2fs rsync"
+  local optPgms="wget realpath"
+
+  # check uid = 0
+  if [ "$UID" != "0" ]; then
+    echo "error: you need to be root to run this script!" >&2
+    exit 3
+  fi
+
+  # check mandatory programs
+  for p in $pgms; do
+    if ! type -p $p > /dev/null; then
+      echo "error: you need to install program $p to run this script!" >&2
+      exit 3
+    fi
+  done
+
+  # check optional programs
+  for p in $optPgms; do
+    if ! type -p $p > /dev/null; then
+      echo "info: recommended program $p not installed!" >&2
+    fi
+  done
+}
+
+# usage message   -------------------------------------------------------------
+
+usage() {
+  local pgm=`basename $0`
+  echo -e "\n$pgm: Write an (Raspberry Pi) image of a sd-card to a physical sd-card\n`tr '[:alnum:]' ' ' <<< \"$pgm\"`  and copy additional files from all given directories to the sd-card\n\
+  \nusage: `basename $0` -i image -t target [options] [dir [...]]\n\
+  Possible options:\n\
+    -i image    source image (required)\n\
+    -t target   target device (required, e.g. /dev/sdc)\n\n\
+    -P          preparation mode\n\n\
+    -H size     create a home-partition of given size (default: no home)\n\
+                (use size>0 or 'rest')\n\
+    -S size     create a swap--partition of given size (default: no swap)\n\
+                (use size>0 or 'rest')\n\
+    -n          don't expand root partition\n\
+                (note that '-H rest' or '-S rest' will also prevent expansion)\n\n\
+    -k          keep all files\n\
+    -L logfile  write log-messages additionally to given logfile\n\
+    -1 script   run the given script after  copying the image to SD\n\
+    -2 script   run the given script after  resizing/partition creation\n\
+    -3 script   run the given script after  copying template files to the SD\n\
+    -h          show this help\n\
+"
+  exit 3
+}
+
+# set defaults   --------------------------------------------------------------
+
+setDefaults() {
+  prepMode=0
+  sizeHome="0"
+  sizeSwap="0"
+  expand=1
+  keepFiles=0
+  sourceImage=""
+  targetDevice=""
+  phase1Script=""
+  phase2Script=""
+  phase3Script=""
+  logFile="/dev/null"
+}
+
+# parse arguments and set variables -------------------------------------------
+
+parseArguments() {
+  while getopts ":i:t:L:H:S:nkP1:2:3:vhd" opt; do
+    case $opt in
+      i) sourceImage="$OPTARG";;
+      t) targetDevice="$OPTARG";;
+      L) logFile="$OPTARG"; rm -f "$logFile";;
+      H) sizeHome="$OPTARG";;
+      S) sizeSwap="$OPTARG";;
+      n) expand=0;;
+      k) keepFiles=1;;
+      P) prepMode=1;;
+      1) phase1Script="$OPTARG";;
+      2) phase2Script="$OPTARG";;
+      3) phase3Script="$OPTARG";;
+      h) usage;;
+      ?) echo "error: illegal option: $OPTARG"
+           usage;;
+    esac
+  done
+
+  shift $((OPTIND-1))
+  dirs=("$@")
+}
+
+# write message to log and stderr   -------------------------------------------
+
+msg() {
+  echo -e "$1" | tee -a "$logFile" >&2
+}
+
+# check arguments   -----------------------------------------------------------
+
+checkArguments() {
+  # check source images
+  if [ -z "$sourceImage" ]; then
+    msg "error: source image not specified. Use -i option!" 
+    usage
+  fi
+  if [ ! -f "$sourceImage" ]; then
+    msg "error: source image $sourceImage does not exist!" 
+    exit 3
+  fi
+
+  # check target device
+  if [ -z "$targetDevice" ]; then
+    msg "error: target device not specified. Use -t option!" 
+    usage
+  fi
+  if ! fdisk -l "$targetDevice" > /dev/null 2>&1; then
+    msg "error: device $targetDevice does not exist!" 
+    exit 3
+  fi
+  if grep -wq "$targetDevice." /etc/mtab; then
+    msg "error: partition from device $targetDevice is already mounted!" 
+    exit 3
+  fi
+
+  # check size parameters
+  if [ "$sizeHome" = "rest" -a "$sizeSwap" = "rest" ]; then
+    msg "error: you can't use '-H rest' and '-S rest' at the same time!" 
+    exit 3;
+  fi
+}
+
+# now copy image to target-device   --------------------------------------------
+
+writeSD() {
+  local pgm="cat"
+  # check for direct download
+  if [ "${sourceImage#http}" != "$sourceImage" ] && type -p wget >/dev/null; then
+    msg "info: using wget for downloading the image"
+    pgm="wget -q -O -"
+  fi  
+
+  if [ "${sourceImage%.zip}" != "$sourceImage" ]; then
+    msg "info: unzipping $sourceImage to $targetDevice" 
+    eval "$pgm" "$sourceImage" | funzip > "$targetDevice"
+  elif [ "${sourceImage%.gz}" != "$sourceImage" ]; then
+    msg "info: gunzipping $sourceImage to $targetDevice" 
+    eval "$pgm" "$sourceImage" | gunzip -c > "$targetDevice"
+  elif [ "${sourceImage%.bz2}" != "$sourceImage" ]; then
+    msg "info: bunzipping $sourceImage to $targetDevice" 
+    eval "$pgm" "$sourceImage" | bunzip2 -c > "$targetDevice"
+  else
+    msg "info: dd-ing $sourceImage to $targetDevice" 
+    eval "$pgm" "$sourceImage" | dd of="$targetDevice" bs=1M
+  fi
+  sync
+  # update kernel partition table
+  partprobe
+}
+
+# convert sizes to sectors   --------------------------------------------------
+
+convertSize() {
+  local size="$1"
+
+  # handle special values
+  if [ "$size" = "rest" -o "$size" = "0" ]; then
+    echo "$size"
+    return
+  fi
+
+  size="${size^^}"                                  # convert to upper-case
+  if [ "${size/G}" != "$size" ]; then
+    size=$(bc <<< "${size/G}*2097152/1")            # GB to sectors
+  elif [ "${size/M}" != "$size" ]; then
+    size=$(bc <<< "${size/M}*2048/1")               # MB to sectors
+  elif [ "${size/K}" != "$size" ]; then
+    size=$(bc <<< "${size/K}*2/1")                  # KB to sectors
+  fi
+  let size=size/2048*2048                           # align
+  echo "$size"
+}
+
+# calculate partition sizes   -------------------------------------------------
+
+calcSizes() {
+  # sizes are in sectors
+  local d1 d2
+
+  # device size and current root-size
+  let sizeDev=$(sfdisk -s "$targetDevice")*2
+  msg "info: sizeDev:   $sizeDev"
+  let sizeRoot=$(sfdisk -s "$targetDevice"2)*2
+  msg "info: sizeRoot:   $sizeRoot"
+  
+  # sizeUsed: up to last sector of second partition
+  read d1 startRoot sizeUsed d2 < <(fdisk -l "$targetDevice" | tail -n 1)
+  let sizeUsed+=1
+  let sizeFree=sizeDev-sizeUsed
+
+  msg "info: startRoot:  $startRoot"
+  msg "info: sizeUsed:   $sizeUsed"
+  msg "info: sizeFree:   $sizeFree"
+
+  # requested size for home and swap
+  sizeSwap=`convertSize "$sizeSwap"`
+  msg "info: sizeSwap:   $sizeSwap"
+  sizeHome=`convertSize "$sizeHome"`
+  if [ "$sizeHome" = "rest" -a "$sizeSwap" != "0" ]; then
+    let sizeHome=\(sizeFree-sizeSwap\)/2048*2048
+  fi
+  msg "info: sizeHome:   $sizeHome"
+
+  # calculate if requested size fits into sizeFree
+  local sizeNeeded=0
+  if [ "$sizeHome" != "rest" ]; then
+    let sizeNeeded+=sizeHome
+  fi
+  if [ "$sizeSwap" != "rest" ]; then
+    let sizeNeeded+=sizeSwap
+  fi
+  msg "info: sizeNeeded: $sizeNeeded"
+  if [ $sizeFree -lt $sizeNeeded ]; then
+    msg "error: not enough free space on device!" 
+    exit 3
+  fi
+
+  # calculate additional size for root (aligned to 2048-byte boundary)
+  let addRoot=0
+  if [ "$sizeHome" != "rest" -a "$sizeSwap" != "rest" -a $expand -eq 1 ]; then
+    let addRoot=\(sizeFree-sizeNeeded\)/2048*2048
+  fi
+  msg "info: addRoot:    $addRoot"
+
+  # begin of free space
+  let startFree=sizeUsed
+  msg "info: startFree:  $startFree"
+}
+
+# resize root filesystem of SD-card   -----------------------------------------
+
+resizeRoot() {
+  local change="+" newSize
+
+  [ $addRoot -eq 0 ] && return
+
+  [ $addRoot -lt 0 ] && change="-"
+  let newSize=sizeRoot+addRoot-1
+  msg "info: resizing root to $newSize"
+
+  let startFree+=addRoot
+
+  # check existing fs
+  msg "info: checking existing root-fs"
+  e2fsck -fy  "${targetDevice}2"
+  if [ "$?" -gt 2 ]; then
+    msg "error: filesystem check failed. Aborting..." 
+    exit 3
+  fi
+
+  if [ "$change" == "-" ]; then
+    msg "info: shrinking existing root-fs"
+    resize2fs "${targetDevice}2" "$newSize"
+  fi
+
+  msg "info: delete and recreate root partition with new size $newSize"
+
+  # resize partition
+  #        /- delete
+  #        |  /- partition nr. 2
+  #        |  |  /- new partition
+  #        |  |  |  /- primary partition
+  #        |  |  |  |  /- partition nr. 2
+  #        |  |  |  |  |  /- first sector
+  #        |  |  |  |  |  |             /- new size or last sector or empty
+  #        |  |  |  |  |  |             |            /- write table
+  #        v  v  v  v  v  v             v            v
+  echo -e "d\n2\nn\np\n2\n${startRoot}\n+${newSize}\nw\n" | fdisk "$targetDevice"
+  msg "info: sleeping 3 second before rereading partition-table" 
+  sleep 3
+  partprobe
+
+  if [ "$change" == "+" ]; then
+    # expand filesystem to size of partition
+    msg "info: expanding filesystem to new size"
+    resize2fs "${targetDevice}2"
+  fi
+}
+
+# create home partition on SD-card   ------------------------------------------
+
+createHome() {
+  local pSize=""                           # fdisk-default: the rest
+
+  # check if we should create home and set partition number for swap
+  swapNr=3
+  [ "$sizeHome" = "0" ] && return            # nothing to do
+
+  swapNr=4
+
+  if [ "$sizeHome" != "rest" ]; then
+    let pSize=sizeHome-1
+    pSize="+$pSize"
+  fi
+
+  msg "info: creating home with size $sizeHome"
+  
+  # create partition
+  #        /- new
+  #        |  /- primary partition
+  #        |  |  /- partition nr. 3
+  #        |  |  |  /- first sector
+  #        |  |  |  |             /- new size or last sector or empty
+  #        |  |  |  |             |           /- write table
+  #        |  |  |  |             |           | /- print table
+  #        |  |  |  |             |           | |
+  #        v  v  v  v             v           v v
+  echo -e "n\np\n3\n${startFree}\n${pSize}\nw\np\n" | fdisk "$targetDevice"
+
+  local i=0
+  while [ ! -b "${targetDevice}3" -a $i -lt 3 ]; do
+    msg "info: sleeping 3 second before rereading partition-table" 
+    sleep 3
+    partprobe
+    let i+=1
+  done
+  if [ $i -eq 3 ]; then
+    msg "error: failed to create home-partition" 
+    exit 3
+  fi
+
+  msg "info: formatting home with ext4"
+  mkfs.ext4 "${targetDevice}3"
+
+  # update startFree
+  [ "$sizeHome" != "rest" ] && let startFree+=sizeHome
+}
+
+# create swap partition on SD-card   ------------------------------------------
+
+createSwap() {
+  [ "$sizeSwap" = "0" ] && return
+
+  local pSize=""                           # fdisk-default: the rest
+
+  if [ "$sizeSwap" != "rest" ]; then
+    let pSize=sizeSwap-1
+    pSize="+$pSize"
+  fi
+  
+  msg "info: creating swap with size $sizeSwap"
+  
+  # create partition
+  #        /- new
+  #        |  /- primary partition
+  #        |  |  /- partition nr. swapNr
+  #        |  |  |  /- first sector
+  #        |  |  |          |             /- new size or last sector or empty
+  #        |  |  |          |             |         /- partition type
+  #        |  |  |          |             |         |   /- part nr
+  #        |  |  |          |             |         |   |         /- type 82
+  #        v  v  v          v             v         v   v         v
+  echo -e "n\np\n${swapNr}\n${startFree}\n${pSize}\nt\n${swapNr}\n82\n\
+w\np\n" | fdisk "$targetDevice"
+  while ! test -b "${targetDevice}$swapNr"; do
+    msg "info: sleeping 3 second before rereading partition-table" 
+    sleep 3
+    partprobe
+  done
+
+  msg "info: initializing swap-device ${targetDevice}$swapNr"
+  mkswap "${targetDevice}$swapNr"
+}
+
+# move files from /home to new partition   ------------------------------------
+
+moveHome() {
+  [ ! -b "${targetDevice}3" -o "$sizeHome" = "0" ] && return
+
+  local mntDirRoot=`mktemp -d --tmpdir sdimg2sd.XXXXXX`
+  local mntDirHome=`mktemp -d --tmpdir sdimg2sd.XXXXXX`
+
+  # mount partitions
+  msg "info: mounting ${targetDevice}2 (root-partition)" 
+  mount "${targetDevice}2" "$mntDirRoot"
+  msg "info: mounting ${targetDevice}3 (home-partition)" 
+  mount "${targetDevice}3" "$mntDirHome"
+
+  # move files
+  msg "info: moving files from /home to new home-partition"
+  mv -f "$mntDirRoot/home/"* "$mntDirHome"       # we assume no dot-files
+  sync
+
+  # umount partitions
+  umount "$mntDirHome" && rm -fr "$mntDirHome"
+  umount "$mntDirRoot" && rm -fr "$mntDirRoot"
+}
+
+# mount system from SD   ------------------------------------------------------
+
+mountPartitions() {
+  mntDir=`mktemp -d --tmpdir sdimg2sd.XXXXXX`
+  
+  # mount partitions
+  msg "info: mounting ${targetDevice}2 (root-partition)" 
+  mount "${targetDevice}2" "$mntDir"
+
+  [ ! -d "$mntDir/boot" ] && mkdir -p "$mntDir/boot"
+  msg "info: mounting ${targetDevice}1 to boot" 
+  mount "${targetDevice}1" "$mntDir/boot"
+
+  if [ -b "${targetDevice}3" -a "$sizeHome" != "0" ]; then
+    msg "info: mounting ${targetDevice}3 (home-partition)" 
+    mount "${targetDevice}3" "$mntDir/home"
+  fi
+}
+
+# copy files from template directories   ---------------------------------------
+
+copyFiles() {
+  local d haveCerts=0 doCleanup=0
+  for d in "${dirs[@]}"; do
+    type -p realpath > /dev/null && d=`realpath "$d"`
+    if [ ! -d "$d" ]; then
+      msg "warning: $d is not a directory!" 
+      continue
+    fi
+
+    # cleanup necessary only if actually copy files
+    [ $keepFiles -eq 0 ] && doCleanup=1
+
+    msg "info: copying $d to ${targetDevice}2"
+    rsync -aAXHv "$d/" "$mntDir"
+
+    # check if have certificates
+    if [ $keepFiles -eq 0 -a $haveCerts -eq 0 ]; then
+      find "$d/etc/ssh"  | grep -q "ssh_host_.*key" && haveCerts=1 
+    fi
+  done  
+  sync
+
+  # check if we should do some cleanup
+  [ $doCleanup -eq 1 ] && cleanupFiles "$haveCerts"
+}
+
+# remove or change files   ----------------------------------------------------
+
+cleanupFiles() {
+  local haveCerts="$1"
+
+  msg "info: removing /etc/profile.d/raspi-config.sh"
+  rm -f "$mntDir/etc/profile.d/raspi-config.sh"       # assume we don't need it
+
+  if [ "$haveCerts" = "1" ]; then
+    msg "info: removing regenerate_ssh_host_keys"
+    find "$mntDir/etc" -name "*regenerate_ssh_host_keys" -exec rm -f {} \;
+  fi
+}
+
+# update files (/etc/fstab, /etc/rc.local)   ----------------------------------
+
+updateFiles() {
+  # add home and/or swap partition to /etc/fstab
+  if [ "$sizeHome" != "0" ]; then
+      echo -e "\n#\n/dev/mmcblk0p3  /home auto noatime,acl,user_xattr 1 2" >> \
+                                                             "$mntDir/etc/fstab"
+  fi
+  if [ "$sizeSwap" != "0" ]; then
+      echo -e "\n#\n/dev/mmcblk0p$swapNr  swap swap defaults 0 0" >> \
+                                                             "$mntDir/etc/fstab"
+  fi
+
+  # add one-time boot-script apiinst2 to /etc/rc.local
+  if [ -f "$mntDir/usr/local/sbin/apiinst2" ]; then
+    sed -i -e '/^exit 0/i\
+[ -x /usr/local/sbin/apiinst2 ] && /usr/local/sbin/apiinst2 &' \
+                                                           "$mntDir/etc/rc.local"
+  fi
+}
+
+# umount system from SD   -----------------------------------------------------
+
+umountPartitions() {
+  if [ -b "${targetDevice}3"  -a "$sizeHome" != "0" ]; then
+    msg "info: unmounting ${targetDevice}3" 
+    umount "$mntDir/home"
+  fi
+  msg "info: unmounting ${targetDevice}1" 
+  umount "$mntDir/boot"
+  msg "info: unmounting ${targetDevice}2"
+  umount "$mntDir" && rm -fr "$mntDir"
+}
+
+# adjust fake HW-clock for preparation-mode   --------------------------------
+
+adjustClock() {
+  msg "info: adjusting fake HW-clock by one day"
+  local mntDir=`mktemp -d --tmpdir sdimg2sd.XXXXXX`
+  
+  # mount root partition
+  msg "info: mounting ${targetDevice}2 (root-partition)" 
+  mount "${targetDevice}2" "$mntDir"
+
+  # read value, and write an adjusted value
+  local oldClock=$(cat $mntDir/etc/fake-hwclock.data)
+  msg "info: old HW-clock value: $oldClock"
+  date -d "$oldClock +1 day" +"%Y-%m-%d %T" > "$mntDir/etc/fake-hwclock.data"
+  msg "info: new HW-clock value: $(cat $mntDir/etc/fake-hwclock.data)"
+
+  # unmount root partition
+  msg "info: unmounting ${targetDevice}2"
+  umount "$mntDir" && rm -fr "$mntDir"
+}
+
+# main program   -------------------------------------------------------------
+
+[ "$1" != "-h" ] && checkPrereqs
+
+setDefaults
+parseArguments "$@"
+checkArguments
+
+# write the image to SD
+writeSD
+if [ $prepMode -eq 1 ]; then
+  msg "info: preparing image for initial configuration"
+  adjustClock
+  msg "info: finished"
+  exit 0
+fi
+
+# calculate partition sizes (bail out if necessary)
+calcSizes
+
+if [ -n "$phase1Script" ]; then
+   msg "info: running $phase1Script"
+   eval "$phase1Script"
+fi
+
+resizeRoot
+createHome
+createSwap
+
+# move files from /home to new partition if necessary
+moveHome
+
+if [ -n "$phase2Script" ]; then
+   msg "info: running $phase2Script"
+   eval "$phase2Script"
+fi
+
+# copy template-files
+mountPartitions
+copyFiles
+updateFiles
+
+if [ -n "$phase3Script" ]; then
+   msg "info: running $phase3Script"
+   eval "$phase3Script" "$mntDir"
+fi
+
+umountPartitions
+msg "info: finished"

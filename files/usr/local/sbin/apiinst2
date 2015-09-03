@@ -1,0 +1,111 @@
+#!/bin/bash 
+#
+# This is a sample phase2-script for the automatic pi installer (apiinst).
+#
+# This script updates the package system, adds some new packages,
+# deletes other packages and creates a user (tux).
+#
+# At the end, this script removes the executable bit from itself 
+# to make sure it is only executed once.
+#
+# $Author: bablokb $
+# $Revision: 1.5 $
+#
+# License: GPL3
+# -----------------------------------------------------------------------------
+
+PACKAGES_ADD="bc jed zip"
+PACKAGES_DEL="scratch squeak-vm"
+
+USER_ADD="tux"
+USER_PWD="init#pw"   # initial password, must be changed at first login
+UID_ADD="4000"
+GROUP_ADD="tux"
+GID_ADD="4000"
+
+# this should not be necessary, since the script should run from /etc/rc.local
+if [ "$UID" != "0" ]; then
+  echo -e "error: this script must be run as root!" >&2
+  exit 3
+fi
+
+# check for ssh host keys   ---------------------------------------------------
+
+checkSSHkeys() {
+  if [ ! -f /etc/ssh/ssh_host_rsa_key ]; then
+    if [ -x /etc/init.d/regenerate_ssh_host_keys ]; then
+      /etc/init.d/regenerate_ssh_host_keys start
+    else
+      # this really should not happen!!
+      logger -s -t "apiinst2" "could not regenerate ssh host keys!"
+    fi
+  fi
+}
+
+# add and delete packges   ----------------------------------------------------
+
+changePackages() {
+  apt-get update
+
+  # add some nice packages
+
+  # note that this install command will not overwrite existing configurations
+  # and will also ask anyy questions
+
+  if [ -n "$PACKAGES_ADD" ]; then
+    apt-get -o Dpkg::Options::="--force-confdef" \
+          -o Dpkg::Options::="--force-confold" -y install $PACKAGES_ADD
+  fi
+
+  # remove obsolete packages
+
+  if [ -n "$PACKAGES_DEL" ]; then
+    apt-get -y --auto-remove remove $PACKAGES_DEL
+  fi
+}
+
+# create user with given ID and group   --------------------------------------
+
+addUsers() {
+  # create group for user...
+  addgroup --gid $GID_ADD $GROUP_ADD
+
+  # create user with initial password 'init#pw' ...
+  echo -e "$USER_PWD\n$USER_PWD" | \
+        adduser  --gecos "" \
+           --home /home/$USER_ADD --uid $UID_ADD --gid $GID_ADD $USER_ADD
+
+  # ... and force user to change at first login
+  chage -d 0 $USER_ADD
+}
+
+# prevent login for normal users   ------------------------------------------
+
+preventLogin() {
+cat > /etc/nologin <<EOF
+Initial system configuration in progress!
+
+Currently no user login is allowed!
+EOF
+}
+
+# enable login   ------------------------------------------------------------
+
+enableLogin() {
+  rm -f /etc/nologin
+}
+
+# main program   ------------------------------------------------------------
+
+preventLogin
+checkSSHkeys
+if ping -c 1 www.google.com; then
+  changePackages
+else
+  logger -s -t "apiinst2" "no network connection - no package update"
+fi
+addUsers
+enableLogin
+
+# remove executable bit
+chmod -x "$0"
