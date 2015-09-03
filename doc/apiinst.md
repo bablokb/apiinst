@@ -32,7 +32,7 @@ must be run as root and has builtin help:
 Prerequisites
 -------------
 
-Apiinst is a shell script. It uses various tools to execute it's tasks.
+`apiinst` is a shell script. It uses various tools to execute it's tasks.
 Specfically, you need:
 
   - fdisk 
@@ -54,26 +54,26 @@ Some tools are optional:
   - wget
   - realpath
 
-You only need wget if you want to feed an image directly from the web to
-the install script. With realpath, you can also give links to directories
-(instead of the directories itself) as input to apiinst.
+You only need `wget` if you want to feed an image directly from the web to
+the install script. With `realpath`, you can also give links to directories
+(instead of the directories itself) as input to `apiinst`.
 
 
 Preparation mode
 ----------------
 
-With the option *-P* apiinst runs in preparation mode. See the file
-Preparation.md for details.
+With the option `-P` apiinst runs in preparation mode. See the file
+[Preparation.md](./Preparation.md "Preparation.md") for details.
 
 
 Sample invocations
 ------------------
 
 Here are some sample invocation of the script. The samples always asume that
-*/dev/sdb* is the device of your card-reader, please change this according
+`/dev/sdb` is the device of your card-reader, please change this according
 to your hardware environment.
 
-The first example replicates a simple *dd* of the image to the sd-card:
+The first example replicates a simple `dd` of the image to the sd-card:
 
     sudo apiinst -i 2015-05-05-wheezy.img -t /dev/sdb -n
 
@@ -85,10 +85,10 @@ directly processes these images:
 If you have a stable internet connection you can even supply a http-url
 as input source.
 
-Without the option *-n* the script also expands the root-partition to it's
-maximum size (replicating what *raspi-config* does).
+Without the option `-n` the script also expands the root-partition to it's
+maximum size (replicating what `raspi-config` does).
 
-If you want an additional home-partition, just add the option *-H size*, e.g.:
+If you want an additional home-partition, just add the option `-H size`, e.g.:
 
     sudo apiinst -i 2015-05-05-wheezy.zip -t /dev/sdb -H 1GB
 
@@ -98,7 +98,7 @@ up all the free space, use
 
     sudo apiinst -i 2015-05-05-wheezy.zip -t /dev/sdb -H rest
 
-You could also add a swap partition (using the option *-S size*), but additional
+You could also add a swap partition (using the option `-S size`), but additional
 swap is seldom necessary.
 
 The real benefit of apiinst is the possibility to copy files from a
@@ -122,13 +122,13 @@ After apiinst has created the image, it will delete some files so that
 raspi-config does not run anymore automatically if you login to the system.
 It also deletes some files which generate new SSH host keys (but only
 if you provide your own keys). Anyhow, you can prevent such modifications
-with the option *-k*.
+with the option `-k`.
 
 
 Log file
 --------
 
-With the option *-L logfilename* apiinst will write all log messages
+With the option `-L logfilename` apiinst will write all log messages
 to that file (in addition to the console).
 
 
@@ -136,7 +136,7 @@ to that file (in addition to the console).
 Add functions using you own scripts
 -----------------------------------
 
-The parameters *-1*, *-2* and *-3* allow you to plug in your own scripts
+The parameters `-1`, `-2` and `-3` allow you to plug in your own scripts
 for special processing. Apiinst will provide the current mount-directory
 to the third script, so you can access all files on the sd-card using
 this parameter.
