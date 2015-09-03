@@ -42,9 +42,9 @@ for the initial boot phase. Copy these files to your own template
 directory and modify them as necessary.
 
 In the `doc`-directory you find all the necessary documentation:
-  - [Preparation.md](./Preparation.md "Preparation.md"): describes the
+  - [Preparation.md](./doc/Preparation.md "Preparation.md"): describes the
     preparation process in detail
-  - [FirstBoot.md](./FirstBoot.md "FirstBoot.md"): execute a script
+  - [FirstBoot.md](./doc/FirstBoot.md "FirstBoot.md"): execute a script
     during first boot
-  - [apiinst.md](./apiinst.md "apiinst.md"): How to use the script
+  - [apiinst.md](./doc/apiinst.md "apiinst.md"): How to use the script
     `bin/apiinst`
