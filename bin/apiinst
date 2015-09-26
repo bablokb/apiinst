@@ -66,7 +66,8 @@ usage() {
   \nusage: `basename $0` -i image -t target [options] [dir [...]]\n\
   Possible options:\n\
     -i image    source image (required)\n\
-    -t target   target device (required, e.g. /dev/sdc)\n\n\
+    -t target   target device (required, e.g. /dev/sdc)\n\
+    -B boot     boot device (optional, target device is USB-HDD/SSD)\n\n\
     -P          preparation mode\n\n\
     -H size     create a home-partition of given size (default: no home)\n\
                 (use size>0 or 'rest')\n\
@@ -94,6 +95,7 @@ setDefaults() {
   keepFiles=0
   sourceImage=""
   targetDevice=""
+  bootDevice=""
   phase1Script=""
   phase2Script=""
   phase3Script=""
@@ -103,10 +105,11 @@ setDefaults() {
 # parse arguments and set variables -------------------------------------------
 
 parseArguments() {
-  while getopts ":i:t:L:H:S:nkP1:2:3:vhd" opt; do
+  while getopts ":i:t:B:L:H:S:nkP1:2:3:vhd" opt; do
     case $opt in
       i) sourceImage="$OPTARG";;
       t) targetDevice="$OPTARG";;
+      B) bootDevice="$OPTARG";;
       L) logFile="$OPTARG"; rm -f "$logFile";;
       H) sizeHome="$OPTARG";;
       S) sizeSwap="$OPTARG";;
@@ -157,6 +160,18 @@ checkArguments() {
   if grep -wq "$targetDevice." /etc/mtab; then
     msg "error: partition from device $targetDevice is already mounted!" 
     exit 3
+  fi
+
+  # check boot device
+  if [ -n "$bootDevice" ]; then
+    if ! fdisk -l "$bootDevice" > /dev/null 2>&1; then
+      msg "error: device $bootDevice does not exist!" 
+      exit 3
+    fi
+    if grep -wq "$bootDevice." /etc/mtab; then
+      msg "error: partition from device $bootDevice is already mounted!" 
+      exit 3
+    fi
   fi
 
   # check size parameters
@@ -413,8 +428,8 @@ w\np\n" | fdisk "$targetDevice"
 moveHome() {
   [ ! -b "${targetDevice}3" -o "$sizeHome" = "0" ] && return
 
-  local mntDirRoot=`mktemp -d --tmpdir sdimg2sd.XXXXXX`
-  local mntDirHome=`mktemp -d --tmpdir sdimg2sd.XXXXXX`
+  local mntDirRoot=`mktemp -d --tmpdir apiinst.XXXXXX`
+  local mntDirHome=`mktemp -d --tmpdir apiinst.XXXXXX`
 
   # mount partitions
   msg "info: mounting ${targetDevice}2 (root-partition)" 
@@ -435,7 +450,7 @@ moveHome() {
 # mount system from SD   ------------------------------------------------------
 
 mountPartitions() {
-  mntDir=`mktemp -d --tmpdir sdimg2sd.XXXXXX`
+  mntDir=`mktemp -d --tmpdir apiinst.XXXXXX`
   
   # mount partitions
   msg "info: mounting ${targetDevice}2 (root-partition)" 
@@ -531,7 +546,7 @@ umountPartitions() {
 
 adjustClock() {
   msg "info: adjusting fake HW-clock by one day"
-  local mntDir=`mktemp -d --tmpdir sdimg2sd.XXXXXX`
+  local mntDir=`mktemp -d --tmpdir apiinst.XXXXXX`
   
   # mount root partition
   msg "info: mounting ${targetDevice}2 (root-partition)" 
@@ -545,6 +560,35 @@ adjustClock() {
 
   # unmount root partition
   msg "info: unmounting ${targetDevice}2"
+  umount "$mntDir" && rm -fr "$mntDir"
+}
+
+# copy boot partition to boot-device   ---------------------------------------
+
+copyBootPartition() {
+  msg "info: copying first partition to boot-partition"
+  dd if="$targetDevice" of="$bootDevice" bs=512 count=$startRoot
+  sleep 1
+  partprobe
+  sleep 3
+}
+
+# fix various references to root-partition in files   ------------------------
+
+fixupPartitions() {
+  local mntDir=`mktemp -d --tmpdir apiinst.XXXXXX`
+
+  msg "info: fixing /boot/cmdline.txt on boot-device"
+  mount "${bootDevice}1" "$mntDir"
+  sed -i -e 's!/dev/mmcblk0p2!/dev/sda2!' "$mntDir/cmdline.txt"
+  sync
+  umount "$mntDir"
+
+  msg "info: fixing /etc/fstab on root-device"
+  mount "${targetDevice}2" "$mntDir"
+  sed -i -e '/home/s/mmcblk0p/sda/' \
+         -e '/swap/s/mmcblk0p/sda/' \
+         -e 's!/dev/mmcblk0p2!/dev/sda2!' "$mntDir/etc/fstab"
   umount "$mntDir" && rm -fr "$mntDir"
 }
 
@@ -596,4 +640,10 @@ if [ -n "$phase3Script" ]; then
 fi
 
 umountPartitions
+
+# check if we us a separate boot device, in this case, copy first partition
+if [ -n "$bootDevice" ]; then
+  copyBootPartition
+  fixupPartitions
+fi
 msg "info: finished"
