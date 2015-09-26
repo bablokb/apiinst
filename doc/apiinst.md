@@ -11,6 +11,7 @@ must be run as root and has builtin help:
       Possible options:
         -i image    source image (required)
         -t target   target device (required, e.g. /dev/sdc)
+        -B boot     boot device (optional, target device is USB-HDD/SSD)
     
         -P          preparation mode
     
@@ -132,7 +133,6 @@ With the option `-L logfilename` apiinst will write all log messages
 to that file (in addition to the console).
 
 
-
 Add functions using you own scripts
 -----------------------------------
 
@@ -140,4 +140,23 @@ The parameters `-1`, `-2` and `-3` allow you to plug in your own scripts
 for special processing. Apiinst will provide the current mount-directory
 to the third script, so you can access all files on the sd-card using
 this parameter.
+
+
+Installation to HDD/SDD
+-----------------------
+
+Apiinst now also supports the installation of a Raspbian image to HDD/SDD.
+Technically, the Pi still needs an SD-card for the small boot-partition,
+but the large root-partition can reside on an USB connected HDD/SDD or
+an USB-stick. Although throuput of an USB-device is still limited, it is
+usually better than the throuput of the SD-card.
+
+To install an image to an USB-device, you have to plug in the device in
+addition to the SD-card. Assume your SD-card is on `/dev/sdb` and your
+USB-connected HDD is on `/dev/sdc`. Then you would run
+
+    sudo apiinst -i 2015-05-05-wheezy.zip -B /dev/sdb -t /dev/sdc
+
+You can combine the additional `-B device`-option with all other options
+of `apiinst` as described above.
 
