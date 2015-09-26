@@ -28,7 +28,13 @@ The next time you install a Pi, you
    - expands the root-filesystem
    - then copies all files from the template-directory to the SD-card
 2. now boot your Pi with the newly created SD-card
+3. No more additional configuration with `raspi-config` is necessary ;-)
 
+As a second benefit, `bin/apiinst` now also supports the installation
+of images to an USB-connected HDD/SDD-device. Using such a device for
+the root-filesystem usually speeds up the Pi if you are doing a lot of
+disk I/O, since the throughput of such a device is typically better
+than the throughput of the SD-card.
 
 Project structure
 -----------------
