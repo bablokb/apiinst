@@ -6,12 +6,12 @@ creation phase of the SD-card. But a number of steps require a running
 system. So these installation tasks are postponed to a script running at
 first boot.
 
-If you add a script named */usr/local/sbin/apiinst2* to your template
-directory, then *apiinst* will automatically change the file */etc/rc.local*
+If you add a script named `/usr/local/sbin/apiinst2` to your template
+directory, then `apiinst` will automatically change the file `/etc/rc.local`
 to execute that script at startup.
 
 To simplify things, this script contains a sample implementation of apiinst2
-in the directory *files/usr/local/sbin/*. This script will do the following
+in the directory `files/usr/local/sbin/`. This script will do the following
 
   - prevent login
   - check if SSH host keys exist and regenerate if them if necessary
