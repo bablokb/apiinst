@@ -148,7 +148,7 @@ Installation to HDD/SDD
 Apiinst now also supports the installation of a Raspbian image to HDD/SDD.
 Technically, the Pi still needs an SD-card for the small boot-partition,
 but the large root-partition can reside on an USB connected HDD/SDD or
-an USB-stick. Although throughput of an USB-device is still limited, it is
+an USB-stick. Although the throughput of an USB-device is still limited, it is
 usually better than the throughput of the SD-card.
 
 To install an image to an USB-device, you have to plug in the device in
@@ -160,3 +160,5 @@ USB-connected HDD is on `/dev/sdc`. Then you would run
 You can combine the additional `-B device`-option with all other options
 of `apiinst` as described above.
 
+**Be careful with the selection of the boot-device and root-device,
+all data on both devices will be erased!**
