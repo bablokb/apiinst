@@ -327,7 +327,7 @@ resizeRoot() {
   #        |  |  |  |  |  |             |            /- write table
   #        v  v  v  v  v  v             v            v
   echo -e "d\n2\nn\np\n2\n${startRoot}\n+${newSize}\nw\n" | fdisk "$targetDevice"
-  msg "info: sleeping 3 second before rereading partition-table" 
+  msg "info: sleeping 3 second before rereading partition-table"
   sleep 3
   partprobe
 
@@ -370,7 +370,7 @@ createHome() {
 
   local i=0
   while [ ! -b "${targetDevice}3" -a $i -lt 3 ]; do
-    msg "info: sleeping 3 second before rereading partition-table" 
+    msg "info: sleeping 3 second before rereading partition-table"
     sleep 3
     partprobe
     let i+=1
@@ -414,7 +414,7 @@ createSwap() {
   echo -e "n\np\n${swapNr}\n${startFree}\n${pSize}\nt\n${swapNr}\n82\n\
 w\np\n" | fdisk "$targetDevice"
   while ! test -b "${targetDevice}$swapNr"; do
-    msg "info: sleeping 3 second before rereading partition-table" 
+    msg "info: sleeping 3 second before rereading partition-table"
     sleep 3
     partprobe
   done
@@ -566,11 +566,27 @@ adjustClock() {
 # copy boot partition to boot-device   ---------------------------------------
 
 copyBootPartition() {
-  msg "info: copying first partition to boot-partition"
+  msg "info: copying first partition to boot-device"
   dd if="$targetDevice" of="$bootDevice" bs=512 count=$startRoot
+  sync
   sleep 1
   partprobe
   sleep 3
+
+  # delete "2nd partition": since we copied the partition table, this
+  # (non-existent) second partition is of invalid size
+  msg "info: deleting invalid second partition from boot-device"
+
+  # delete partition
+  #        /- delete
+  #        |  /- partition nr. 2
+  #        |  |  /- write table
+  #        |  |  |
+  #        v  v  v
+  echo -e "d\n2\nw\n" | fdisk "$bootDevice"
+  msg "info: sleeping 3 second before rereading partition-table"
+  sleep 3
+  partprobe
 }
 
 # fix various references to root-partition in files   ------------------------
