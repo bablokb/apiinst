@@ -9,6 +9,7 @@ Data-Partition
 - set defaults for part-number and size
 - refactor createHome to createPartition
 - update main-program
+- update documentation
 
 General
 -------
