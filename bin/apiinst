@@ -30,6 +30,11 @@
 # License: GPL3
 # -----------------------------------------------------------------------------
 
+# some constants   ------------------------------------------------------------
+
+MNT_DATA="data"                             # directory within /
+FS_TYPE="ext4"                              # filesystem type for home, data
+
 # check program prerequisites   -----------------------------------------------
 
 checkPrereqs() {
@@ -71,7 +76,9 @@ usage() {
     -P          preparation mode\n\n\
     -H size     create a home-partition of given size (default: no home)\n\
                 (use size>0 or 'rest')\n\
-    -S size     create a swap--partition of given size (default: no swap)\n\
+    -D size     create a data-partition of given size (default: no data)\n\
+                (use size>0 or 'rest')\n\
+    -S size     create a swap-partition of given size (default: no swap)\n\
                 (use size>0 or 'rest')\n\
     -n          don't expand root partition\n\
                 (note that '-H rest' or '-S rest' will also prevent expansion)\n\n\
@@ -89,8 +96,8 @@ usage() {
 
 setDefaults() {
   prepMode=0
-  sizeHome="0"
-  sizeSwap="0"
+  sizeHome="0"; sizeData="0"; sizeSwap="0"
+  nrHome="3";   nrData="3";   nrSwap="3"
   expand=1
   keepFiles=0
   sourceImage=""
@@ -105,13 +112,14 @@ setDefaults() {
 # parse arguments and set variables -------------------------------------------
 
 parseArguments() {
-  while getopts ":i:t:B:L:H:S:nkP1:2:3:vhd" opt; do
+  while getopts ":i:t:B:L:H:D:S:nkP1:2:3:vhd" opt; do
     case $opt in
       i) sourceImage="$OPTARG";;
       t) targetDevice="$OPTARG";;
       B) bootDevice="$OPTARG";;
       L) logFile="$OPTARG"; rm -f "$logFile";;
       H) sizeHome="$OPTARG";;
+      D) sizeData="$OPTARG";;
       S) sizeSwap="$OPTARG";;
       n) expand=0;;
       k) keepFiles=1;;
@@ -174,10 +182,20 @@ checkArguments() {
     fi
   fi
 
+  # check number of requested partitions
+  local count=`echo -e "$sizeHome\n$sizeData\$sizeSwap" | \
+                     grep -v "^0$" | wc -l`
+  if [ "$count" -gt 2 ]; then
+    msg "error: you can use at most two of the options '-H, -D, -S!'"
+    exit 3
+  fi
+
   # check size parameters
-  if [ "$sizeHome" = "rest" -a "$sizeSwap" = "rest" ]; then
-    msg "error: you can't use '-H rest' and '-S rest' at the same time!" 
-    exit 3;
+  local count=`echo -e "$sizeHome\n$sizeData\$sizeSwap" | \
+                     grep "rest" | wc -l`
+  if [ "$count" -gt 1 ]; then
+    msg "error: only one of the partitions can take up the rest of the free space!"
+    exit 3
   fi
 }
 
@@ -253,23 +271,43 @@ calcSizes() {
   msg "info: sizeUsed:   $sizeUsed"
   msg "info: sizeFree:   $sizeFree"
 
-  # requested size for home and swap
+  # requested size for home, data and swap
   sizeSwap=`convertSize "$sizeSwap"`
-  msg "info: sizeSwap:   $sizeSwap"
+  sizeData=`convertSize "$sizeData"`
   sizeHome=`convertSize "$sizeHome"`
-  if [ "$sizeHome" = "rest" -a "$sizeSwap" != "0" ]; then
-    let sizeHome=\(sizeFree-sizeSwap\)/2048*2048
+
+  if [ "$sizeHome" = "rest" ]; then
+    let sizeHome=\(sizeFree-sizeData-sizeSwap\)/2048*2048
+    if [ $sizeHome -lt 0 ]; then
+      msg "error: not enough free space on device (needed: $sizeHome)!" 
+      exit 3
+    fi
   fi
   msg "info: sizeHome:   $sizeHome"
 
+  if [ "$sizeData" = "rest" ]; then
+    let sizeData=\(sizeFree-sizeHome-sizeSwap\)/2048*2048
+    if [ $sizeData -lt 0 ]; then
+      msg "error: not enough free space on device (needed: $sizeData)!!" 
+      exit 3
+    fi
+  fi
+  msg "info: sizeData:   $sizeData"
+
+  if [ "$sizeSwap" = "rest" ]; then
+    let sizeSwap=\(sizeFree-sizeHome-sizeData\)/2048*2048
+    if [ $sizeSwap -lt 0 ]; then
+      msg "error: not enough free space on device (needed: $sizeSwap)!!" 
+      exit 3
+    fi
+  fi
+  msg "info: sizeSwap:   $sizeSwap"
+
   # calculate if requested size fits into sizeFree
-  local sizeNeeded=0
-  if [ "$sizeHome" != "rest" ]; then
-    let sizeNeeded+=sizeHome
-  fi
-  if [ "$sizeSwap" != "rest" ]; then
-    let sizeNeeded+=sizeSwap
-  fi
+  # (needs to be checked in case no partition uses 'rest')
+  local sizeNeeded
+  let sizeNeeded=sizeHome+sizeData+sizeSwap
+
   msg "info: sizeNeeded: $sizeNeeded"
   if [ $sizeFree -lt $sizeNeeded ]; then
     msg "error: not enough free space on device!" 
@@ -278,7 +316,7 @@ calcSizes() {
 
   # calculate additional size for root (aligned to 2048-byte boundary)
   let addRoot=0
-  if [ "$sizeHome" != "rest" -a "$sizeSwap" != "rest" -a $expand -eq 1 ]; then
+  if [ $expand -eq 1 ]; then
     let addRoot=\(sizeFree-sizeNeeded\)/2048*2048
   fi
   msg "info: addRoot:    $addRoot"
@@ -338,60 +376,50 @@ resizeRoot() {
   fi
 }
 
-# create home partition on SD-card   ------------------------------------------
+# create home/data partition on SD-card   -------------------------------------
 
-createHome() {
-  local pSize=""                           # fdisk-default: the rest
+createPartition() {
+  local pNr="$1" partSize="$2" pSize
 
-  # check if we should create home and set partition number for swap
-  swapNr=3
-  [ "$sizeHome" = "0" ] && return            # nothing to do
+  let pSize=partSize-1    # fdisk uses zero based values and
+  pSize="+$pSize"         # pSize is the relative position
 
-  swapNr=4
-
-  if [ "$sizeHome" != "rest" ]; then
-    let pSize=sizeHome-1
-    pSize="+$pSize"
-  fi
-
-  msg "info: creating home with size $sizeHome"
+  msg "info: creating partition $pNr with size $partSize"
   
   # create partition
   #        /- new
   #        |  /- primary partition
-  #        |  |  /- partition nr. 3
-  #        |  |  |  /- first sector
-  #        |  |  |  |             /- new size or last sector or empty
-  #        |  |  |  |             |           /- write table
-  #        |  |  |  |             |           | /- print table
-  #        |  |  |  |             |           | |
-  #        v  v  v  v             v           v v
-  echo -e "n\np\n3\n${startFree}\n${pSize}\nw\np\n" | fdisk "$targetDevice"
+  #        |  |  /- partition nr. pNr
+  #        |  |  |       /- first sector
+  #        |  |  |       |             /- end sector (relative)
+  #        |  |  |       |             |         /- write table
+  #        |  |  |       |             |         |  /- print table
+  #        |  |  |       |             |         |  |
+  #        v  v  v       v             v         v  v
+  echo -e "n\np\n${pNr}\n${startFree}\n${pSize}\nw\np\n" | fdisk "$targetDevice"
 
   local i=0
-  while [ ! -b "${targetDevice}3" -a $i -lt 3 ]; do
+  while [ ! -b "${targetDevice}$pNr" -a $i -lt 3 ]; do
     msg "info: sleeping 3 second before rereading partition-table"
     sleep 3
     partprobe
     let i+=1
   done
   if [ $i -eq 3 ]; then
-    msg "error: failed to create home-partition" 
+    msg "error: failed to create partition $pNr" 
     exit 3
   fi
 
-  msg "info: formatting home with ext4"
-  mkfs.ext4 "${targetDevice}3"
+  msg "info: formatting partition $pNr with $FS_TYPE"
+  mkfs.$FS_TYPE -E "lazy_itable_init=0,lazy_journal_init=0"  "${targetDevice}$pNr"
 
   # update startFree
-  [ "$sizeHome" != "rest" ] && let startFree+=sizeHome
+  let startFree+=partSize
 }
 
 # create swap partition on SD-card   ------------------------------------------
 
 createSwap() {
-  [ "$sizeSwap" = "0" ] && return
-
   local pSize=""                           # fdisk-default: the rest
 
   if [ "$sizeSwap" != "rest" ]; then
@@ -411,22 +439,22 @@ createSwap() {
   #        |  |  |          |             |         |   /- part nr
   #        |  |  |          |             |         |   |         /- type 82
   #        v  v  v          v             v         v   v         v
-  echo -e "n\np\n${swapNr}\n${startFree}\n${pSize}\nt\n${swapNr}\n82\n\
+  echo -e "n\np\n${nrSwap}\n${startFree}\n${pSize}\nt\n${nrSwap}\n82\n\
 w\np\n" | fdisk "$targetDevice"
-  while ! test -b "${targetDevice}$swapNr"; do
+  while ! test -b "${targetDevice}$nrSwap"; do
     msg "info: sleeping 3 second before rereading partition-table"
     sleep 3
     partprobe
   done
 
-  msg "info: initializing swap-device ${targetDevice}$swapNr"
-  mkswap "${targetDevice}$swapNr"
+  msg "info: initializing swap-device ${targetDevice}$nrSwap"
+  mkswap "${targetDevice}$nrSwap"
 }
 
 # move files from /home to new partition   ------------------------------------
 
 moveHome() {
-  [ ! -b "${targetDevice}3" -o "$sizeHome" = "0" ] && return
+  [ ! -b "${targetDevice}$nrHome" -o "$sizeHome" = "0" ] && return
 
   local mntDirRoot=`mktemp -d --tmpdir apiinst.XXXXXX`
   local mntDirHome=`mktemp -d --tmpdir apiinst.XXXXXX`
@@ -434,8 +462,8 @@ moveHome() {
   # mount partitions
   msg "info: mounting ${targetDevice}2 (root-partition)" 
   mount "${targetDevice}2" "$mntDirRoot"
-  msg "info: mounting ${targetDevice}3 (home-partition)" 
-  mount "${targetDevice}3" "$mntDirHome"
+  msg "info: mounting ${targetDevice}$nrHome (home-partition)" 
+  mount "${targetDevice}$nrHome" "$mntDirHome"
 
   # move files
   msg "info: moving files from /home to new home-partition"
@@ -460,9 +488,15 @@ mountPartitions() {
   msg "info: mounting ${targetDevice}1 to boot" 
   mount "${targetDevice}1" "$mntDir/boot"
 
-  if [ -b "${targetDevice}3" -a "$sizeHome" != "0" ]; then
-    msg "info: mounting ${targetDevice}3 (home-partition)" 
-    mount "${targetDevice}3" "$mntDir/home"
+  if [ -b "${targetDevice}$nrHome" -a "$sizeHome" != "0" ]; then
+    msg "info: mounting ${targetDevice}$nrHome (home-partition)" 
+    mount "${targetDevice}$nrHome" "$mntDir/home"
+  fi
+
+  if [ -b "${targetDevice}$nrData" -a "$sizeData" != "0" ]; then
+    msg "info: mounting ${targetDevice}$nrData (data-partition)"
+    mkdir -p "$mntDir/$MNT_DATA"
+    mount "${targetDevice}$nrData" "$mntDir/$MNT_DATA"
   fi
 }
 
@@ -513,11 +547,15 @@ cleanupFiles() {
 updateFiles() {
   # add home and/or swap partition to /etc/fstab
   if [ "$sizeHome" != "0" ]; then
-      echo -e "\n#\n/dev/mmcblk0p3  /home auto noatime,acl,user_xattr 1 2" >> \
+      echo -e "\n#\n/dev/mmcblk0p$nrHome  /home auto noatime,acl,user_xattr 1 2" >> \
+                                                             "$mntDir/etc/fstab"
+  fi
+  if [ "$sizeData" != "0" ]; then
+      echo -e "\n#\n/dev/mmcblk0p$nrData  /$MNT_DATA auto noatime,acl,user_xattr 1 2" >> \
                                                              "$mntDir/etc/fstab"
   fi
   if [ "$sizeSwap" != "0" ]; then
-      echo -e "\n#\n/dev/mmcblk0p$swapNr  swap swap defaults 0 0" >> \
+      echo -e "\n#\n/dev/mmcblk0p$nrSwap  swap swap defaults 0 0" >> \
                                                              "$mntDir/etc/fstab"
   fi
 
@@ -532,9 +570,13 @@ updateFiles() {
 # umount system from SD   -----------------------------------------------------
 
 umountPartitions() {
-  if [ -b "${targetDevice}3"  -a "$sizeHome" != "0" ]; then
-    msg "info: unmounting ${targetDevice}3" 
+  if [ -b "${targetDevice}$nrHome"  -a "$sizeHome" != "0" ]; then
+    msg "info: unmounting ${targetDevice}$nrHome" 
     umount "$mntDir/home"
+  fi
+  if [ -b "${targetDevice}$nrData"  -a "$sizeData" != "0" ]; then
+    msg "info: unmounting ${targetDevice}$nrData" 
+    umount "$mntDir/$MNT_DATA"
   fi
   msg "info: unmounting ${targetDevice}1" 
   umount "$mntDir/boot"
@@ -603,6 +645,7 @@ fixupPartitions() {
   msg "info: fixing /etc/fstab on root-device"
   mount "${targetDevice}2" "$mntDir"
   sed -i -e '/home/s/mmcblk0p/sda/' \
+         -e "/$MNT_DATA/s/mmcblk0p/sda/" \
          -e '/swap/s/mmcblk0p/sda/' \
          -e 's!/dev/mmcblk0p2!/dev/sda2!' "$mntDir/etc/fstab"
   umount "$mntDir" && rm -fr "$mntDir"
@@ -634,8 +677,16 @@ if [ -n "$phase1Script" ]; then
 fi
 
 resizeRoot
-createHome
-createSwap
+if [ "$sizeHome" != "0" ]; then
+  let nrSwap+=1
+  let nrData+=1
+  createPartition "$nrHome" "$sizeHome" 
+fi
+if [ "$sizeData" != "0" ]; then
+  let nrSwap+=1
+  createPartition "$nrData" "$sizeData" 
+fi
+[ "$sizeSwap" != "0" ] && createSwap
 
 # move files from /home to new partition if necessary
 moveHome
