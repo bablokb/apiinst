@@ -98,6 +98,7 @@ setDefaults() {
   prepMode=0
   sizeHome="0"; sizeData="0"; sizeSwap="0"
   nrHome="3";   nrData="3";   nrSwap="3"
+  delPartitionCmd=""
   expand=1
   keepFiles=0
   sourceImage=""
@@ -384,6 +385,10 @@ createPartition() {
   let pSize=partSize-1    # fdisk uses zero based values and
   pSize="+$pSize"         # pSize is the relative position
 
+  # keep track of partition in case we have to delete the entry
+  # from the boot device
+  delPartitionCmd+="d\n${pNr}\n"
+
   msg "info: creating partition $pNr with size $partSize"
   
   # create partition
@@ -427,6 +432,10 @@ createSwap() {
     pSize="+$pSize"
   fi
   
+  # keep track of partition in case we have to delete the entry
+  # from the boot device
+  delPartitionCmd+="d\n${nrSwap}\n"
+
   msg "info: creating swap with size $sizeSwap"
   
   # create partition
@@ -615,17 +624,15 @@ copyBootPartition() {
   partprobe
   sleep 3
 
-  # delete "2nd partition": since we copied the partition table, this
-  # (non-existent) second partition is of invalid size
-  msg "info: deleting invalid second partition from boot-device"
+  # delete additional partitions: since we copied the partition table, these
+  # (non-existent) partition table entries are invalid
+  msg "info: deleting invalid partitions from boot-device"
 
   # delete partition
-  #        /- delete
-  #        |  /- partition nr. 2
-  #        |  |  /- write table
-  #        |  |  |
-  #        v  v  v
-  echo -e "d\n2\nw\n" | fdisk "$bootDevice"
+  #                          /- write table
+  #                          |
+  #                          v
+  echo -e "${delPartitionCmd}w\n" | fdisk "$bootDevice"
   msg "info: sleeping 3 second before rereading partition-table"
   sleep 3
   partprobe
