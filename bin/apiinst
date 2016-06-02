@@ -98,7 +98,7 @@ setDefaults() {
   prepMode=0
   sizeHome="0"; sizeData="0"; sizeSwap="0"
   nrHome="3";   nrData="3";   nrSwap="3"
-  delPartitionCmd=""
+  delPartitionCmd="d\n2\n"
   expand=1
   keepFiles=0
   sourceImage=""
