@@ -17,6 +17,8 @@ must be run as root and has builtin help:
     
         -H size     create a home-partition of given size (default: no home)
                     (use size>0 or 'rest')
+        -D size     create a data-partition of given size (default: no data)
+                    (use size>0 or 'rest')
         -S size     create a swap--partition of given size (default: no swap)
                     (use size>0 or 'rest')
         -n          don't expand root partition
@@ -98,6 +100,9 @@ resized to fill the remaining space. If you want the home-partition to take
 up all the free space, use
 
     sudo apiinst -i 2015-05-05-wheezy.zip -t /dev/sdb -H rest
+
+Similarly, create a data-partition with `-D size`. The data-partition
+will be automatically mounted to `/data`.
 
 You could also add a swap partition (using the option `-S size`), but additional
 swap is seldom necessary.
