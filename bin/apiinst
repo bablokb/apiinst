@@ -210,15 +210,20 @@ writeSD() {
     pgm="wget -q -O -"
   fi  
 
-  if [ "${sourceImage%.zip}" != "$sourceImage" ]; then
-    msg "info: unzipping $sourceImage to $targetDevice" 
-    eval "$pgm" "$sourceImage" | funzip > "$targetDevice"
-  elif [ "${sourceImage%.gz}" != "$sourceImage" ]; then
-    msg "info: gunzipping $sourceImage to $targetDevice" 
-    eval "$pgm" "$sourceImage" | gunzip -c > "$targetDevice"
-  elif [ "${sourceImage%.bz2}" != "$sourceImage" ]; then
-    msg "info: bunzipping $sourceImage to $targetDevice" 
-    eval "$pgm" "$sourceImage" | bunzip2 -c > "$targetDevice"
+  # we support various compression formats
+  declare -A unpacker
+  unpacker["zip"]="funzip"
+  unpacker["gz"]="gunzip -c"
+  unpacker["bz2"]="bunzip2 -c"
+  unpacker["xz"]="xzcat"
+
+  # select unpacker
+  local ext="${sourceImage##*.}"
+  local upcmd="${unpacker[$ext]}"
+
+  if [ -n "$upcmd" ]; then
+    msg "info: unpacking $sourceImage to $targetDevice with $upcmd" 
+    eval "$pgm" "$sourceImage" | "$upcmd" > "$targetDevice"
   else
     msg "info: dd-ing $sourceImage to $targetDevice" 
     eval "$pgm" "$sourceImage" | dd of="$targetDevice" bs=1M
