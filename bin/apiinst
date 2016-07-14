@@ -162,18 +162,28 @@ checkArguments() {
     msg "error: target device not specified. Use -t option!" 
     usage
   fi
-  if ! fdisk -l "$targetDevice" > /dev/null 2>&1; then
-    msg "error: device $targetDevice does not exist!" 
+
+  if [ -b "$targetDevice" ]; then
+    if grep -wq "$targetDevice." /etc/mtab; then
+      msg "error: partition from device $targetDevice is already mounted!" 
+      exit 3
+    fi
+    targetType="block"
+  elif [ "${targetDevice:0:4}" = "/dev" ]; then
+    msg "error: device $targetDevice does not exist!"
     exit 3
-  fi
-  if grep -wq "$targetDevice." /etc/mtab; then
-    msg "error: partition from device $targetDevice is already mounted!" 
-    exit 3
+  else
+    targetType="image"
+    msg "warning: assuming $targetDevice is an image-file"
   fi
 
   # check boot device
   if [ -n "$bootDevice" ]; then
-    if ! fdisk -l "$bootDevice" > /dev/null 2>&1; then
+    if [ "$targetType" = "image" ]; then
+      msg "error: boot device not supported if target is image!" 
+      usage
+    fi
+    if [ ! -b "$bootDevice" ]; then
       msg "error: device $bootDevice does not exist!" 
       exit 3
     fi
