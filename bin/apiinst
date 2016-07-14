@@ -38,7 +38,7 @@ FS_TYPE="ext4"                              # filesystem type for home, data
 # check program prerequisites   -----------------------------------------------
 
 checkPrereqs() {
-  local p pgms="fdisk funzip gunzip bunzip2 dd partprobe bc sfdisk resize2fs rsync"
+  local p pgms="fdisk funzip gunzip bunzip2 dd partprobe kpartx bc sfdisk resize2fs rsync"
   local optPgms="wget realpath"
 
   # check uid = 0
