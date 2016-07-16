@@ -174,13 +174,14 @@ checkArguments() {
     exit 3
   else
     targetType="image"
+    targetDeviceFile="$targetDevice"
     msg "warning: assuming $targetDevice is an image-file"
   fi
 
   # check boot device
   if [ -n "$bootDevice" ]; then
     if [ "$targetType" = "image" ]; then
-      msg "error: boot device not supported if target is image!" 
+      msg "error: dedicated boot device not supported if target is image!" 
       usage
     fi
     if [ ! -b "$bootDevice" ]; then
@@ -210,10 +211,47 @@ checkArguments() {
   fi
 }
 
+# setup loop device for targetType == image   ----------------------------------
+
+setupLoop() {
+  if [ "$1" = "init" ]; then
+    msg "info: setting up loop device (init)"
+    modprobe loop
+    if [ -f "$targetDevice" ]; then   # existing file, need this for writeSD
+      losetup -f "$targetDevice"
+      targetDevice=`losetup -j "$targetDevice" | cut -d: -f1`
+      msg "info: loop device is: $targetDevice"
+    fi
+
+  elif [ "$1" = "add" ]; then
+    msg "info: setting up partitions for loop-device $targetDevice"
+    [ ! -f "$targetDevice" ] && losetup -d "$targetDevice" # remove old loop
+
+    # map partitions (make naming consistent with normal block devices)
+    kpartx -va -p '' -s "$targetDeviceFile"
+    targetDevice=`losetup -j "$targetDeviceFile" | cut -d: -f1`
+    ln -s "$targetDevice" "/dev/mapper/${targetDevice##*/}"
+    targetDevice="/dev/mapper/${targetDevice##*/}"
+    msg "info: loop device is: $targetDevice"
+
+  elif [ "$1" = "upd" ]; then
+    msg "info: updating partitions for loop-device $targetDevice"
+    kpartx -vu -p '' -s "$targetDeviceFile"
+
+  elif [ "$1" = "cleanup" ]; then
+    msg "info: deleting loop-device $targetDevice"
+    kpartx -dv -p '' -s "$targetDeviceFile"
+    rm -f "$targetDevice"              # symlink in /dev/mapper created with add
+  fi
+}
+
 # now copy image to target-device   --------------------------------------------
 
 writeSD() {
   local pgm="cat"
+
+  [ "$targetType" = "image" ] && setupLoop "init"
+
   # check for direct download
   if [ "${sourceImage#http}" != "$sourceImage" ] && type -p wget >/dev/null; then
     msg "info: using wget for downloading the image"
@@ -240,7 +278,11 @@ writeSD() {
   fi
   sync
   # update kernel partition table
-  partprobe
+  if [ "$targetType" = "block" ]; then
+    partprobe
+  else
+    setupLoop "add"
+  fi
 }
 
 # convert sizes to sectors   --------------------------------------------------
@@ -383,7 +425,11 @@ resizeRoot() {
   echo -e "d\n2\nn\np\n2\n${startRoot}\n+${newSize}\nw\n" | fdisk "$targetDevice"
   msg "info: sleeping 3 second before rereading partition-table"
   sleep 3
-  partprobe
+  if [ "$targetType" = "block" ]; then
+    partprobe
+  else
+    setupLoop "upd"
+  fi
 
   if [ "$change" == "+" ]; then
     # expand filesystem to size of partition
@@ -422,7 +468,11 @@ createPartition() {
   while [ ! -b "${targetDevice}$pNr" -a $i -lt 3 ]; do
     msg "info: sleeping 3 second before rereading partition-table"
     sleep 3
-    partprobe
+    if [ "$targetType" = "block" ]; then
+      partprobe
+    else
+      setupLoop "upd"
+    fi
     let i+=1
   done
   if [ $i -eq 3 ]; then
@@ -468,7 +518,11 @@ w\np\n" | fdisk "$targetDevice"
   while ! test -b "${targetDevice}$nrSwap"; do
     msg "info: sleeping 3 second before rereading partition-table"
     sleep 3
-    partprobe
+    if [ "$targetType" = "block" ]; then
+      partprobe
+    else
+      setupLoop "upd"
+    fi
   done
 
   msg "info: initializing swap-device ${targetDevice}$nrSwap"
@@ -686,6 +740,7 @@ writeSD
 if [ $prepMode -eq 1 ]; then
   msg "info: preparing image for initial configuration"
   adjustClock
+  [ "$targetType" = "image" ] && setupLoop "cleanup"
   msg "info: finished"
   exit 0
 fi
@@ -735,4 +790,6 @@ if [ -n "$bootDevice" ]; then
   copyBootPartition
   fixupPartitions
 fi
+
+[ "$targetType" = "image" ] && setupLoop "cleanup"
 msg "info: finished"
