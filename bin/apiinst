@@ -83,6 +83,7 @@ usage() {
     -n          don't expand root partition\n\
                 (note that '-H rest' or '-S rest' will also prevent expansion)\n\n\
     -k          keep all files\n\
+    -Q          prepare image for Qemu (needs image-file as target)\n\
     -L logfile  write log-messages additionally to given logfile\n\
     -1 script   run the given script after  copying the image to SD\n\
     -2 script   run the given script after  resizing/partition creation\n\
@@ -108,12 +109,13 @@ setDefaults() {
   phase2Script=""
   phase3Script=""
   logFile="/dev/null"
+  qemuMode=0
 }
 
 # parse arguments and set variables -------------------------------------------
 
 parseArguments() {
-  while getopts ":i:t:B:L:H:D:S:nkP1:2:3:vhd" opt; do
+  while getopts ":i:t:B:L:H:D:S:nkQP1:2:3:vhd" opt; do
     case $opt in
       i) sourceImage="$OPTARG";;
       t) targetDevice="$OPTARG";;
@@ -124,6 +126,7 @@ parseArguments() {
       S) sizeSwap="$OPTARG";;
       n) expand=0;;
       k) keepFiles=1;;
+      Q) qemuMode=1;;
       P) prepMode=1;;
       1) phase1Script="$OPTARG";;
       2) phase2Script="$OPTARG";;
@@ -207,6 +210,12 @@ checkArguments() {
                      grep "rest" | wc -l`
   if [ "$count" -gt 1 ]; then
     msg "error: only one of the partitions can take up the rest of the free space!"
+    exit 3
+  fi
+
+  # check qemu-mode
+  if [ $qemuMode -eq 1 -a "$targetType" != "image" ]; then
+    msg "error: Qemu-mode only available for targets of type image!"
     exit 3
   fi
 }
@@ -727,6 +736,12 @@ fixupPartitions() {
   umount "$mntDir" && rm -fr "$mntDir"
 }
 
+# apply fixes for Qemu   -----------------------------------------------------
+
+fix4Qemu() {
+ :
+}
+
 # main program   -------------------------------------------------------------
 
 [ "$1" != "-h" ] && checkPrereqs
@@ -789,6 +804,8 @@ umountPartitions
 if [ -n "$bootDevice" ]; then
   copyBootPartition
   fixupPartitions
+elif [ $qemuMode -eq 1 ]; then
+  fix4Qemu
 fi
 
 [ "$targetType" = "image" ] && setupLoop "cleanup"
