@@ -1,6 +1,15 @@
 The Automatic Pi Installer
 ==========================
 
+News
+----
+
+- **2016/07**: support images, optionally targeted at QEmu
+- **2016/06**: added support for creating a data-partition
+- **2015/09**: added support for HDD/SDD installation
+- **2015/09**: initial version
+
+
 Overview
 --------
 
