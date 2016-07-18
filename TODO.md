@@ -1,15 +1,6 @@
 TODO
 ====
 
-Data-Partition
---------------
-
-- test
-  * -H, -D, -S at the same time (-> error)
-  * creation of home+swap
-  * creation of data+swap
-
-
 Later
 -----
 
