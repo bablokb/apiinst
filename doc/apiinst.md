@@ -25,6 +25,7 @@ must be run as root and has builtin help:
                     (note that '-H rest' or '-S rest' will also prevent expansion)
     
         -k          keep all files
+        -Q          prepare image for Qemu (needs image-file as target)
         -L logfile  write log-messages additionally to given logfile
         -1 script   run the given script after  copying the image to SD
         -2 script   run the given script after  resizing/partition creation
@@ -119,6 +120,21 @@ This example uses two directories, one for configuration files and one for
 user files. If you want to use a single or multiple directories is a 
 matter of taste. Multiple directories come in handy if you want to 
 support multiple configurations which share some common files.
+
+
+Image files
+-----------
+
+The target device can also be an image filename. If the file exists, it
+is taken as is. Otherwise, the compressed source-image is just unzipped
+to the given filename.
+
+To create an image file efficiently, use the `conv=sparse` option of `dd`:
+
+    sudo dd if=/dev/zero of=rpi.img bs=16M count=240 conv=sparse
+
+If you plan to later write the image to a real SD-card, make sure the size
+is not too large.
 
 
 File deletion
