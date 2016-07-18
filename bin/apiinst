@@ -144,7 +144,7 @@ parseArguments() {
 # write message to log and stderr   -------------------------------------------
 
 msg() {
-  echo -e "$1" | tee -a "$logFile" >&2
+  echo -e "$1"
 }
 
 # check arguments   -----------------------------------------------------------
@@ -772,71 +772,77 @@ fix4Qemu() {
   umount "$mntDir/boot" && umount "$mntDir" && rm -fr "$mntDir"
 }
 
+# wrapper (for easy logging)   -----------------------------------------------
+
+main() {
+  checkArguments
+
+  # write the image to SD
+  writeSD
+  if [ $prepMode -eq 1 ]; then
+    msg "info: preparing image for initial configuration"
+    adjustClock
+    [ "$targetType" = "image" ] && setupLoop "cleanup"
+    msg "info: finished"
+    exit 0
+  fi
+
+  # calculate partition sizes (bail out if necessary)
+  calcSizes
+
+  if [ -n "$phase1Script" ]; then
+     msg "info: running $phase1Script"
+     eval "$phase1Script"
+  fi
+
+  resizeRoot
+  if [ "$sizeHome" != "0" ]; then
+    let nrSwap+=1
+    let nrData+=1
+    createPartition "$nrHome" "$sizeHome"
+  fi
+  if [ "$sizeData" != "0" ]; then
+    let nrSwap+=1
+    createPartition "$nrData" "$sizeData"
+  fi
+  [ "$sizeSwap" != "0" ] && createSwap
+
+  # move files from /home to new partition if necessary
+  moveHome
+
+  if [ -n "$phase2Script" ]; then
+     msg "info: running $phase2Script"
+     eval "$phase2Script"
+  fi
+
+  # copy template-files
+  mountPartitions
+  copyFiles
+  updateFiles
+
+  if [ -n "$phase3Script" ]; then
+     msg "info: running $phase3Script"
+     eval "$phase3Script" "$mntDir"
+  fi
+
+  umountPartitions
+
+  # check if we us a separate boot device, in this case, copy first partition
+  if [ -n "$bootDevice" ]; then
+    copyBootPartition
+    fixupPartitions
+  elif [ $qemuMode -eq 1 -a $keepFiles -eq 0 ]; then
+    fix4Qemu
+  fi
+
+  [ "$targetType" = "image" ] && setupLoop "cleanup"
+  msg "info: finished"
+}
+
 # main program   -------------------------------------------------------------
 
 [ "$1" != "-h" ] && checkPrereqs
 
 setDefaults
 parseArguments "$@"
-checkArguments
-
-# write the image to SD
-writeSD
-if [ $prepMode -eq 1 ]; then
-  msg "info: preparing image for initial configuration"
-  adjustClock
-  [ "$targetType" = "image" ] && setupLoop "cleanup"
-  msg "info: finished"
-  exit 0
-fi
-
-# calculate partition sizes (bail out if necessary)
-calcSizes
-
-if [ -n "$phase1Script" ]; then
-   msg "info: running $phase1Script"
-   eval "$phase1Script"
-fi
-
-resizeRoot
-if [ "$sizeHome" != "0" ]; then
-  let nrSwap+=1
-  let nrData+=1
-  createPartition "$nrHome" "$sizeHome" 
-fi
-if [ "$sizeData" != "0" ]; then
-  let nrSwap+=1
-  createPartition "$nrData" "$sizeData" 
-fi
-[ "$sizeSwap" != "0" ] && createSwap
-
-# move files from /home to new partition if necessary
-moveHome
-
-if [ -n "$phase2Script" ]; then
-   msg "info: running $phase2Script"
-   eval "$phase2Script"
-fi
-
-# copy template-files
-mountPartitions
-copyFiles
-updateFiles
-
-if [ -n "$phase3Script" ]; then
-   msg "info: running $phase3Script"
-   eval "$phase3Script" "$mntDir"
-fi
-
-umountPartitions
-
-# check if we us a separate boot device, in this case, copy first partition
-if [ -n "$bootDevice" ]; then
-  copyBootPartition
-  fixupPartitions
-elif [ $qemuMode -eq 1 -a $keepFiles -eq 0 ]; then
-  fix4Qemu
-fi
-
-[ "$targetType" = "image" ] && setupLoop "cleanup"
-msg "info: finished"
+main | tee -a "$logFile" >&2
