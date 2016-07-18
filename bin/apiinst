@@ -224,9 +224,13 @@ checkArguments() {
 
 setupLoop() {
   if [ "$1" = "init" ]; then
-    msg "info: setting up loop device (init)"
-    modprobe loop
+    msg "info: loading kernel-module loop"
+    if ! modprobe loop; then
+      msg "error: could not load kernel-module loop"
+      exit 3
+    fi
     if [ -f "$targetDevice" ]; then   # existing file, need this for writeSD
+      msg "info: setting up loop device (init)"
       losetup -f "$targetDevice"
       targetDevice=`losetup -j "$targetDevice" | cut -d: -f1`
       msg "info: loop device is: $targetDevice"
@@ -239,6 +243,10 @@ setupLoop() {
     # map partitions (make naming consistent with normal block devices)
     kpartx -va -p '' -s "$targetDeviceFile"
     targetDevice=`losetup -j "$targetDeviceFile" | cut -d: -f1`
+    if [ -z "$targetDevice" ]; then
+      msg "error: could not setup loop-devices for $targetDeviceFile!"
+      exit 3
+    fi
     ln -s "$targetDevice" "/dev/mapper/${targetDevice##*/}"
     targetDevice="/dev/mapper/${targetDevice##*/}"
     msg "info: loop device is: $targetDevice"
@@ -739,7 +747,29 @@ fixupPartitions() {
 # apply fixes for Qemu   -----------------------------------------------------
 
 fix4Qemu() {
- :
+  local mntDir=`mktemp -d --tmpdir apiinst.XXXXXX`
+
+  mount "${targetDevice}2" "$mntDir"
+  mount "${targetDevice}1" "$mntDir/boot"
+
+  msg "info: fixing /boot/cmdline.txt"
+  sed -i -e 's!/dev/mmcblk0p2!/dev/sda2!' "$mntDir/boot/cmdline.txt"
+
+  # fix /etc/fstab: replace device ...
+  msg "info: fixing /etc/fstab on root-device"
+  sed -i -e 's/mmcblk0p/sda/'         "$mntDir/etc/fstab"
+
+  #  ... and prevent checking of boot
+  # this is a workaround because CONFIG_FHANDLE is missing?
+  #http://forums.debian.net/viewtopic.php?f=10&t=118828
+  sed -i -e '/boot/s/defaults/defaults,noauto/' "$mntDir/etc/fstab"
+
+  # remove ld.so.preload
+  msg "info: removing /etc/ld.so.preload on root-device"
+  : > "$mntDir/etc/ld.so.preload"
+
+  sync
+  umount "$mntDir/boot" && umount "$mntDir" && rm -fr "$mntDir"
 }
 
 # main program   -------------------------------------------------------------
@@ -804,7 +834,7 @@ umountPartitions
 if [ -n "$bootDevice" ]; then
   copyBootPartition
   fixupPartitions
-elif [ $qemuMode -eq 1 ]; then
+elif [ $qemuMode -eq 1 -a $keepFiles -eq 0 ]; then
   fix4Qemu
 fi
 
