@@ -27,7 +27,12 @@ If you need more space, use the following commands:
 
     sudo dd if=/dev/zero of=jessie-8G.img bs=32M count=280 conv=sparse
     sudo apiinst -i 2016-05-27-jessie-lite.zip -t jessie-8G.img -Q
+    sudo qemu-img convert -O qcow2 jessie-8G.img jessie-8G.qcow2
+    sudo rm jessie-8G.img
 
+The third command converts the image to a special QEmu-format with
+additional functionality (it even  takes up less space than the sparse
+image itself).
 
 Limitations
 -----------
