@@ -288,7 +288,7 @@ writeSD() {
 
   if [ -n "$upcmd" ]; then
     msg "info: unpacking $sourceImage to $targetDevice with $upcmd" 
-    eval "$pgm" "$sourceImage" | "$upcmd" > "$targetDevice"
+    eval "$pgm" "$sourceImage" | eval "$upcmd" > "$targetDevice"
   else
     msg "info: dd-ing $sourceImage to $targetDevice" 
     eval "$pgm" "$sourceImage" | dd of="$targetDevice" bs=1M
