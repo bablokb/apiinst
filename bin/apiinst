@@ -731,7 +731,7 @@ fixupPartitions() {
 
   msg "info: fixing /boot/cmdline.txt on boot-device"
   mount "${bootDevice}1" "$mntDir"
-  sed -i -e 's!/dev/mmcblk0p2!/dev/sda2!' "$mntDir/cmdline.txt"
+  sed -i -e 's!root=[^ ]*!root=/dev/sda2!' "$mntDir/cmdline.txt"
   sync
   umount "$mntDir"
 
@@ -740,7 +740,7 @@ fixupPartitions() {
   sed -i -e '/home/s/mmcblk0p/sda/' \
          -e "/$MNT_DATA/s/mmcblk0p/sda/" \
          -e '/swap/s/mmcblk0p/sda/' \
-         -e 's!/dev/mmcblk0p2!/dev/sda2!' "$mntDir/etc/fstab"
+         -e '/\W\/\W!s!^[^ \t]*!/dev/sda2!' "$mntDir/etc/fstab"
   umount "$mntDir" && rm -fr "$mntDir"
 }
 
@@ -753,11 +753,14 @@ fix4Qemu() {
   mount "${targetDevice}1" "$mntDir/boot"
 
   msg "info: fixing /boot/cmdline.txt"
-  sed -i -e 's!/dev/mmcblk0p2!/dev/sda2!' "$mntDir/boot/cmdline.txt"
+  sed -i -e 's!root=[^ ]*!root=/dev/sda2!' "$mntDir/boot/cmdline.txt"
 
   # fix /etc/fstab: replace device ...
   msg "info: fixing /etc/fstab on root-device"
-  sed -i -e 's/mmcblk0p/sda/'         "$mntDir/etc/fstab"
+  sed -i -e '/home/s/mmcblk0p/sda/' \
+         -e "/$MNT_DATA/s/mmcblk0p/sda/" \
+         -e '/swap/s/mmcblk0p/sda/' \
+         -e '/\W\/\W!s!^[^ \t]*!/dev/sda2!' "$mntDir/etc/fstab"
 
   #  ... and prevent checking of boot
   # this is a workaround because CONFIG_FHANDLE is missing?
