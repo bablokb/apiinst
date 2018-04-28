@@ -803,10 +803,12 @@ main() {
     let nrSwap+=1
     let nrData+=1
     createPartition "$nrHome" "$sizeHome"
+    [ "$FS_TYPE" = ext4 ] && e2label "${targetDevice}$nrHome" "HOME"
   fi
   if [ "$sizeData" != "0" ]; then
     let nrSwap+=1
     createPartition "$nrData" "$sizeData"
+    [ "$FS_TYPE" = ext4 ] && e2label "${targetDevice}$nrHome" "DATA"
   fi
   [ "$sizeSwap" != "0" ] && createSwap
 
