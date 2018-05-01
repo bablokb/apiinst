@@ -1,6 +1,18 @@
 TODO
 ====
 
+- install to given partition
+  * unzip to temp. file
+  * loop-mnt image
+  * mount target partition
+  * rsync partition 2 to target partition
+  * rsync partition 1 to target/boot
+  * umount source
+  * remove temp. file
+  * copy templates
+  * fix cmdline.txt / fstab
+  * move target/boot to target/_boot
+
 Later
 -----
 
