@@ -171,7 +171,12 @@ checkArguments() {
       msg "error: partition from device $targetDevice is already mounted!" 
       exit 3
     fi
-    targetType="block"
+    # check if targetDevice is a partition and not a whole block-device
+    if lsblk -n -d -o NAME | grep -q "${targetDevice/\/dev\/}"; then
+      targetType="block"
+    else
+      targetType="partition"
+    fi
   elif [ "${targetDevice:0:4}" = "/dev" ]; then
     msg "error: device $targetDevice does not exist!"
     exit 3
