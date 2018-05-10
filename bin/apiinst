@@ -188,8 +188,8 @@ checkArguments() {
 
   # check boot device
   if [ -n "$bootDevice" ]; then
-    if [ "$targetType" = "image" ]; then
-      msg "error: dedicated boot device not supported if target is image!" 
+    if [ "$targetType" != "block" ]; then
+      msg "error: dedicated boot device only supported if target is a block-device!"
       usage
     fi
     if [ ! -b "$bootDevice" ]; then
@@ -198,6 +198,22 @@ checkArguments() {
     fi
     if grep -wq "$bootDevice." /etc/mtab; then
       msg "error: partition from device $bootDevice is already mounted!" 
+      exit 3
+    fi
+  fi
+
+  # check invalid options for target-type "partition"
+  if [ "$targetType" = "partition" ]; then
+    if [ "$sizeHome" != "0" ]; then
+      msg "error: -H not supported if target is a partition!"
+      exit 3
+    fi
+    if [ "$sizeData" != "0" ]; then
+      msg "error: -D not supported if target is a partition!"
+      exit 3
+    fi
+    if [ "$sizeSwap" != "0" ]; then
+      msg "error: -S not supported if target is a partition!"
       exit 3
     fi
   fi
@@ -267,6 +283,47 @@ setupLoop() {
   fi
 }
 
+# copy to partition   ----------------------------------------------------------
+
+copy2part() {
+  local srcImage="$1" srcDevice srcMount destMount
+
+  msg "info: loading kernel-module loop"
+  if ! modprobe loop; then
+    msg "error: could not load kernel-module loop"
+    exit 3
+  fi
+
+  # mount source
+  msg "info: mounting partitions of $srcImage"
+  srcDevice=`losetup --show -f -P "$srcImage"`
+  msg "info: srcDevice: $srcDevice"
+  srcMount=`mktemp -d --tmpdir apiinst.XXXXXX`
+  msg "info: mounting ${srcDevice}p2 to $srcMount"
+  mount "${srcDevice}p2" "$srcMount"
+  mkdir -p "$srcMount/boot"
+  msg "info: mounting ${srcDevice}p1 to $srcMount/boot"
+  mount "${srcDevice}p1" "$srcMount/boot"
+
+  # mount target-partition
+  destMount=`mktemp -d --tmpdir apiinst.XXXXXX`
+  msg "info: mounting target-partition $targetDevice to $destMount"
+  mount "$targetDevice" "$destMount"
+
+  # copy files
+  msg "info: copying files from $srcImage to $targetDevice"
+  rsync -axHAXS --delete "$srcMount/" "$destMount"
+  rsync -axHAXS --delete "$srcMount/boot/" "$destMount/boot"
+  sync
+
+  # cleanup
+  msg "info: cleanup of mounts"
+  umount "$destMount" && rm -fr "$destMount"
+  umount "$srcMount/boot"
+  umount "$srcMount" && rm -fr "$srcMount"
+  losetup -D "$srcDevice"
+}
+
 # now copy image to target-device   --------------------------------------------
 
 writeSD() {
@@ -292,17 +349,29 @@ writeSD() {
   local upcmd="${unpacker[$ext]}"
 
   if [ -n "$upcmd" ]; then
-    msg "info: unpacking $sourceImage to $targetDevice with $upcmd" 
-    eval "$pgm" "$sourceImage" | eval "$upcmd" > "$targetDevice"
+    if [ "$targetType" = "partition" ]; then
+      tmpSourceImage=`mktemp  --tmpdir apiinst.XXXXXX`
+      msg "info: unpacking $sourceImage to $tmpSourceImage with $upcmd"
+      eval "$pgm" "$sourceImage" | eval "$upcmd" > "$tmpSourceImage"
+      copy2part "$tmpSourceImage"
+      rm -f "$tmpSourceImage"
+    else
+      msg "info: unpacking $sourceImage to $targetDevice with $upcmd"
+      eval "$pgm" "$sourceImage" | eval "$upcmd" > "$targetDevice"
+    fi
   else
-    msg "info: dd-ing $sourceImage to $targetDevice" 
-    eval "$pgm" "$sourceImage" | dd of="$targetDevice" bs=1M
+    if [ "$targetType" = "partition" ]; then
+      copy2part "$sourceImage"
+    else
+      msg "info: dd-ing $sourceImage to $targetDevice"
+      eval "$pgm" "$sourceImage" | dd of="$targetDevice" bs=1M
+    fi
   fi
   sync
   # update kernel partition table
   if [ "$targetType" = "block" ]; then
     partprobe
-  else
+  elif [ "$targetType" = "image" ]; then
     setupLoop "add"
   fi
 }
@@ -579,7 +648,14 @@ moveHome() {
 
 mountPartitions() {
   mntDir=`mktemp -d --tmpdir apiinst.XXXXXX`
-  
+
+  # handle target-type "partition"
+  if [ "$targetType" = "partition" ]; then
+    msg "info: mounting ${targetDevice} (root-partition)"
+    mount "${targetDevice}" "$mntDir"
+    return
+  fi
+
   # mount partitions
   msg "info: mounting ${targetDevice}2 (root-partition)" 
   mount "${targetDevice}2" "$mntDir"
@@ -614,7 +690,7 @@ copyFiles() {
     # cleanup necessary only if actually copy files
     [ $keepFiles -eq 0 ] && doCleanup=1
 
-    msg "info: copying $d to ${targetDevice}2"
+    msg "info: copying $d to $mntDir"
     rsync -aAXHv "$d/" "$mntDir"
 
     # check if have certificates
@@ -665,22 +741,35 @@ updateFiles() {
 [ -x /usr/local/sbin/apiinst2 ] && /usr/local/sbin/apiinst2 &' \
                                                            "$mntDir/etc/rc.local"
   fi
+
+  # target-type "partition" needs special care
+  if [ "$targetType" = "partition" ]; then
+    pNr="${targetDevice: -1}"
+    msg "info: fixing $mntDir/etc/fstab"
+    sed -i  -e "/\W\/\W/s,^[^ \t]*,/dev/mmcblk0p$pNr," "$mntDir/etc/fstab"
+    msg "info: fixing $mntDir/boot/cmdline.txt"
+    sed -i -e "s,root=[^ ]*,root=/dev/mmcblk0p$pNr," "$mntDir/boot/cmdline.txt"
+  fi
 }
 
 # umount system from SD   -----------------------------------------------------
 
 umountPartitions() {
-  if [ -b "${targetDevice}$nrHome"  -a "$sizeHome" != "0" ]; then
-    msg "info: unmounting ${targetDevice}$nrHome" 
-    umount "$mntDir/home"
+  if [ "$targetType" != "partition" ]; then
+    if [ -b "${targetDevice}$nrHome"  -a "$sizeHome" != "0" ]; then
+      msg "info: unmounting ${targetDevice}$nrHome"
+      umount "$mntDir/home"
+    fi
+    if [ -b "${targetDevice}$nrData"  -a "$sizeData" != "0" ]; then
+      msg "info: unmounting ${targetDevice}$nrData"
+      umount "$mntDir/$MNT_DATA"
+    fi
+    msg "info: unmounting ${targetDevice}1"
+    umount "$mntDir/boot"
+    msg "info: unmounting ${targetDevice}2"
+  else
+    msg "info: unmounting ${targetDevice}"
   fi
-  if [ -b "${targetDevice}$nrData"  -a "$sizeData" != "0" ]; then
-    msg "info: unmounting ${targetDevice}$nrData" 
-    umount "$mntDir/$MNT_DATA"
-  fi
-  msg "info: unmounting ${targetDevice}1" 
-  umount "$mntDir/boot"
-  msg "info: unmounting ${targetDevice}2"
   umount "$mntDir" && rm -fr "$mntDir"
 }
 
@@ -745,7 +834,7 @@ fixupPartitions() {
   sed -i -e '/home/s/mmcblk0p/sda/' \
          -e "/$MNT_DATA/s/mmcblk0p/sda/" \
          -e '/swap/s/mmcblk0p/sda/' \
-         -e '/\W\/\W!s!^[^ \t]*!/dev/sda2!' "$mntDir/etc/fstab"
+         -e '/\W\/\W/s!^[^ \t]*!/dev/sda2!' "$mntDir/etc/fstab"
   umount "$mntDir" && rm -fr "$mntDir"
 }
 
@@ -765,7 +854,7 @@ fix4Qemu() {
   sed -i -e '/home/s/mmcblk0p/sda/' \
          -e "/$MNT_DATA/s/mmcblk0p/sda/" \
          -e '/swap/s/mmcblk0p/sda/' \
-         -e '/\W\/\W!s!^[^ \t]*!/dev/sda2!' "$mntDir/etc/fstab"
+         -e '/\W\/\W/s!^[^ \t]*!/dev/sda2!' "$mntDir/etc/fstab"
 
   #  ... and prevent checking of boot
   # this is a workaround because CONFIG_FHANDLE is missing?
@@ -796,29 +885,31 @@ main() {
   fi
 
   # calculate partition sizes (bail out if necessary)
-  calcSizes
+  [ "$targetType" != "partition" ] && calcSizes
 
   if [ -n "$phase1Script" ]; then
      msg "info: running $phase1Script"
      eval "$phase1Script"
   fi
 
-  resizeRoot
-  if [ "$sizeHome" != "0" ]; then
-    let nrSwap+=1
-    let nrData+=1
-    createPartition "$nrHome" "$sizeHome"
-    [ "$FS_TYPE" = ext4 ] && e2label "${targetDevice}$nrHome" "HOME"
-  fi
-  if [ "$sizeData" != "0" ]; then
-    let nrSwap+=1
-    createPartition "$nrData" "$sizeData"
-    [ "$FS_TYPE" = ext4 ] && e2label "${targetDevice}$nrHome" "DATA"
-  fi
-  [ "$sizeSwap" != "0" ] && createSwap
+  if [ "$targetType" != "partition" ]; then
+    resizeRoot
+    if [ "$sizeHome" != "0" ]; then
+      let nrSwap+=1
+      let nrData+=1
+      createPartition "$nrHome" "$sizeHome"
+      [ "$FS_TYPE" = ext4 ] && e2label "${targetDevice}$nrHome" "HOME"
+    fi
+    if [ "$sizeData" != "0" ]; then
+      let nrSwap+=1
+      createPartition "$nrData" "$sizeData"
+      [ "$FS_TYPE" = ext4 ] && e2label "${targetDevice}$nrHome" "DATA"
+    fi
+    [ "$sizeSwap" != "0" ] && createSwap
 
-  # move files from /home to new partition if necessary
-  moveHome
+    # move files from /home to new partition if necessary
+    moveHome
+  fi
 
   if [ -n "$phase2Script" ]; then
      msg "info: running $phase2Script"
@@ -835,6 +926,10 @@ main() {
      eval "$phase3Script" "$mntDir"
   fi
 
+  # move boot-files to backup-directory (needed for pi-boot-switch)
+  if [ "$targetType" = "partition" ]; then
+    mv "$mntDir/boot" "$mntDir/_boot"
+  fi
   umountPartitions
 
   # check if we us a separate boot device, in this case, copy first partition
