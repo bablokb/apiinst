@@ -903,7 +903,7 @@ main() {
     if [ "$sizeData" != "0" ]; then
       let nrSwap+=1
       createPartition "$nrData" "$sizeData"
-      [ "$FS_TYPE" = ext4 ] && e2label "${targetDevice}$nrHome" "DATA"
+      [ "$FS_TYPE" = ext4 ] && e2label "${targetDevice}$nrData" "DATA"
     fi
     [ "$sizeSwap" != "0" ] && createSwap
 
