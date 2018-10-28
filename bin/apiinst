@@ -80,8 +80,8 @@ usage() {
                   (use size>0 or 'rest')\n\
     -S size       create a swap-partition of given size (default: no swap)\n\
                   (use size>0 or 'rest')\n\
-    -Y s1[/s2...] create additional system-partition(s) of given size\n\
-                  (default: no additional system-partitions)\n\n\
+    -Y s          create additional system-partition of given size\n\
+                  (default: no additional system-partition)\n\n\
     -n            don't expand root partition\n\
                   (note that '-H rest' or '-S rest' will also prevent expansion)\n\n\
     -k            keep all files\n\n\
@@ -98,9 +98,9 @@ usage() {
 # set defaults   --------------------------------------------------------------
 
 setDefaults() {
+  declare -g -a newPartsType newPartsSize
+  newPartsNr=1
   prepMode=0
-  sizeHome="0"; sizeData="0"; sizeSwap="0"
-  nrHome="3";   nrData="3";   nrSwap="3"
   delPartitionCmd="d\n2\n"
   expand=1
   keepFiles=0
@@ -117,15 +117,16 @@ setDefaults() {
 # parse arguments and set variables -------------------------------------------
 
 parseArguments() {
-  while getopts ":i:t:B:L:H:D:S:nkQP1:2:3:vhd" opt; do
+  while getopts ":i:t:B:L:H:D:S:Y:nkQP1:2:3:vhd" opt; do
     case $opt in
       i) sourceImage="$OPTARG";;
       t) targetDevice="$OPTARG";;
       B) bootDevice="$OPTARG";;
       L) logFile="$OPTARG"; rm -f "$logFile";;
-      H) sizeHome="$OPTARG";;
-      D) sizeData="$OPTARG";;
-      S) sizeSwap="$OPTARG";;
+      H) addPart "H" "$OPTARG";;
+      D) addPart "D" "$OPTARG";;
+      S) addPart "S" "$OPTARG";;
+      Y) addPart "Y" "$OPTARG";;
       n) expand=0;;
       k) keepFiles=1;;
       Q) qemuMode=1;;
@@ -141,6 +142,14 @@ parseArguments() {
 
   shift $((OPTIND-1))
   dirs=("$@")
+}
+
+# save partition-info for later processing   ----------------------------------
+
+addPart() {
+  newPartsType[$newPartsNr]="$1"
+  newPartsSize[$newPartsNr]="$2"
+  let newPartsNr+=1
 }
 
 # write message to log and stderr   -------------------------------------------
