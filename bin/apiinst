@@ -215,16 +215,8 @@ checkArguments() {
 
   # check invalid options for target-type "partition"
   if [ "$targetType" = "partition" ]; then
-    if [ "$sizeHome" != "0" ]; then
-      msg "error: -H not supported if target is a partition!"
-      exit 3
-    fi
-    if [ "$sizeData" != "0" ]; then
-      msg "error: -D not supported if target is a partition!"
-      exit 3
-    fi
-    if [ "$sizeSwap" != "0" ]; then
-      msg "error: -S not supported if target is a partition!"
+    if [ $newPartsNr -gt 1 ]; then
+      msg "error: options -H/-D/-S/-Y not supported if target is a partition!"
       exit 3
     fi
   fi
