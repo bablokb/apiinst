@@ -229,14 +229,6 @@ checkArguments() {
     fi
   fi
 
-  # check number of requested partitions
-  local count=`echo -e "$sizeHome\n$sizeData\$sizeSwap" | \
-                     grep -v "^0$" | wc -l`
-  if [ "$count" -gt 2 ]; then
-    msg "error: you can use at most two of the options '-H, -D, -S!'"
-    exit 3
-  fi
-
   # check size parameters
   local count=`echo -e "$sizeHome\n$sizeData\$sizeSwap" | \
                      grep "rest" | wc -l`
