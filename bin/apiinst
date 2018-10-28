@@ -230,8 +230,10 @@ checkArguments() {
   fi
 
   # check size parameters
-  local count=`echo -e "$sizeHome\n$sizeData\$sizeSwap" | \
-                     grep "rest" | wc -l`
+  local count=0
+  for size in "${newPartsSize[@]}"; do
+    [ "$size" = "rest" ] && let count+=1
+  done
   if [ "$count" -gt 1 ]; then
     msg "error: only one of the partitions can take up the rest of the free space!"
     exit 3
