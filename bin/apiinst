@@ -148,7 +148,7 @@ parseArguments() {
 
 addPart() {
   newPartsType[$newPartsNr]="$1"
-  newPartsSize[$newPartsNr]="$2"
+  newPartsSize[$newPartsNr]=$(convertSize "$2")
   let newPartsNr+=1
 }
 
@@ -413,41 +413,42 @@ calcSizes() {
   let sizeUsed+=1
   let sizeFree=sizeDev-sizeUsed
 
+  # check if need overhead-space for extended partition
+  if [ $newPartsNr -gt 3 ]; then
+    let sizeExt=8x512
+  else
+    let sizeExt=0
+  fi
+  let sizeFree-=sizeExt
+
   msg "info: startRoot:  $startRoot"
   msg "info: sizeUsed:   $sizeUsed"
+  msg "info: sizeExt:    $sizeExt"
   msg "info: sizeFree:   $sizeFree"
 
-  # requested size for home, data and swap
-  sizeSwap=`convertSize "$sizeSwap"`
-  sizeData=`convertSize "$sizeData"`
-  sizeHome=`convertSize "$sizeHome"`
 
-  if [ "$sizeHome" = "rest" ]; then
-    let sizeHome=\(sizeFree-sizeData-sizeSwap\)/2048*2048
-    if [ $sizeHome -lt 0 ]; then
-      msg "error: not enough free space on device (needed: $sizeHome)!" 
-      exit 3
-    fi
-  fi
-  msg "info: sizeHome:   $sizeHome"
+  # total size requested (without "rest")
+  local size sizeRequested=0
+  for size in "${newPartsSize[@]}"; do
+    [ "$size" != "rest" ] && let sizeRequested+="$size"
+  done
 
-  if [ "$sizeData" = "rest" ]; then
-    let sizeData=\(sizeFree-sizeHome-sizeSwap\)/2048*2048
-    if [ $sizeData -lt 0 ]; then
-      msg "error: not enough free space on device (needed: $sizeData)!!" 
-      exit 3
+  # update partition with size of "rest"
+  local index
+  for index in "${newPartsSize[@]}"; do
+    if [ "$newPartSize[$index]" = "rest" ]; then
+      let size=\(sizeFree-sizeRequested\)/2048x2048
+      if [ $size -lt 0 ]; then
+        msg "error: not enough free space on device (needed: $size)!"
+        exit 3
+      else
+        newPartSize[$index]="$size"
+        msg "info: size${newPartType[$index]}:      $newPartSize[$index]"
+      fi
+    else
+      msg "info: size${newPartType[$index]}:      $newPartSize[$index]"
     fi
-  fi
-  msg "info: sizeData:   $sizeData"
-
-  if [ "$sizeSwap" = "rest" ]; then
-    let sizeSwap=\(sizeFree-sizeHome-sizeData\)/2048*2048
-    if [ $sizeSwap -lt 0 ]; then
-      msg "error: not enough free space on device (needed: $sizeSwap)!!" 
-      exit 3
-    fi
-  fi
-  msg "info: sizeSwap:   $sizeSwap"
+  done
 
   # calculate if requested size fits into sizeFree
   # (needs to be checked in case no partition uses 'rest')
