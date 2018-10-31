@@ -666,7 +666,7 @@ mountPartitions() {
     mount "${targetDevice}$nrHome" "$mntDir/home"
   fi
 
-  if [ -b "${targetDevice}$nrData" -a "$sizeData" != "0" ]; then
+  if [ -n "$nrData" ]; then
     msg "info: mounting ${targetDevice}$nrData (data-partition)"
     mkdir -p "$mntDir/$MNT_DATA"
     mount "${targetDevice}$nrData" "$mntDir/$MNT_DATA"
