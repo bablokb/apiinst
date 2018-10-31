@@ -615,7 +615,17 @@ createPartition() {
 # move files from /home to new partition   ------------------------------------
 
 moveHome() {
-  [ ! -b "${targetDevice}$nrHome" -o "$sizeHome" = "0" ] && return
+  # check for home-partition
+  local type nrHome=""
+  for index in "${!newPartsType[@]}"; do
+    type="${newPartsType[$index]}"
+    if [ "$type" = "H" ]; then
+      let nrHome=index+2
+      [ $nrHome -ge 4 -a $newPartsNr -gt 3 ] && let nrHome+=1
+      break
+    fi
+  done
+  [ -z "$nrHome" ] && return
 
   local mntDirRoot=`mktemp -d --tmpdir apiinst.XXXXXX`
   local mntDirHome=`mktemp -d --tmpdir apiinst.XXXXXX`
