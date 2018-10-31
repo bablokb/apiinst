@@ -99,6 +99,8 @@ usage() {
 
 setDefaults() {
   declare -g -a newPartsType newPartsSize
+  nrHome=""
+  nrDate=""
   newPartsNr=1
   prepMode=0
   delPartitionCmd="d\n2\n"
@@ -531,8 +533,10 @@ createPartitions() {
                                                 "${targetDevice}$nr"
       if [ "$type" = "H" ]; then
         e2label "${targetDevice}$nr" "HOME"
+        nrHome="$nr"
       elif [ "$type" = "D" ]; then
         e2label "${targetDevice}$nr" "DATA"
+        nrData="$nr"
       fi
     else
       msg "info: initializing swap-device ${targetDevice}$nr"
@@ -616,15 +620,6 @@ createPartition() {
 
 moveHome() {
   # check for home-partition
-  local type nrHome=""
-  for index in "${!newPartsType[@]}"; do
-    type="${newPartsType[$index]}"
-    if [ "$type" = "H" ]; then
-      let nrHome=index+2
-      [ $nrHome -ge 4 -a $newPartsNr -gt 3 ] && let nrHome+=1
-      break
-    fi
-  done
   [ -z "$nrHome" ] && return
 
   local mntDirRoot=`mktemp -d --tmpdir apiinst.XXXXXX`
@@ -666,7 +661,7 @@ mountPartitions() {
   msg "info: mounting ${targetDevice}1 to boot" 
   mount "${targetDevice}1" "$mntDir/boot"
 
-  if [ -b "${targetDevice}$nrHome" -a "$sizeHome" != "0" ]; then
+  if [ -n "$nrHome" ]; then
     msg "info: mounting ${targetDevice}$nrHome (home-partition)" 
     mount "${targetDevice}$nrHome" "$mntDir/home"
   fi
