@@ -428,32 +428,11 @@ calcSizes() {
 
 
   # total size requested (without "rest")
-  local size sizeRequested=0
+  local size sizeNeeded=0
   for size in "${newPartsSize[@]}"; do
-    [ "$size" != "rest" ] && let sizeRequested+="$size"
+    [ "$size" != "rest" ] && let sizeNeeded+="$size"
+    msg "info: size${newPartType[$index]}:      $newPartSize[$index]"
   done
-
-  # update partition with size of "rest"
-  local index
-  for index in "${newPartsSize[@]}"; do
-    if [ "$newPartSize[$index]" = "rest" ]; then
-      let size=\(sizeFree-sizeRequested\)/2048x2048
-      if [ $size -lt 0 ]; then
-        msg "error: not enough free space on device (needed: $size)!"
-        exit 3
-      else
-        newPartSize[$index]="$size"
-        msg "info: size${newPartType[$index]}:      $newPartSize[$index]"
-      fi
-    else
-      msg "info: size${newPartType[$index]}:      $newPartSize[$index]"
-    fi
-  done
-
-  # calculate if requested size fits into sizeFree
-  # (needs to be checked in case no partition uses 'rest')
-  local sizeNeeded
-  let sizeNeeded=sizeHome+sizeData+sizeSwap
 
   msg "info: sizeNeeded: $sizeNeeded"
   if [ $sizeFree -lt $sizeNeeded ]; then
@@ -527,13 +506,68 @@ resizeRoot() {
   fi
 }
 
+# create all partitions   -----------------------------------------------------
+
+createPartitions() {
+  local index size type nr offset=2
+  for index in "${newPartsSize[@]}"; do
+    size="$newPartSize[$index]"
+    type="$newPartType[$index]"
+    let nr=index+offset
+
+    # add extended partition if we need more than two additional partitions
+    if [ $newPartsNr -gt 3 -a $nr -eq 4 ]; then
+      createPartition 4 $sizeExt E
+      let nr+=1
+      let offset+=1
+    fi
+
+    # create partition of given type
+    createPartition $nr $size $type
+
+    if [ "$type" != "S" ]; then
+      msg "info: formatting partition $pNr with $FS_TYPE"
+      mkfs.$FS_TYPE -E "lazy_itable_init=0,lazy_journal_init=0" \
+                                                "${targetDevice}$nr"
+      if [ "$type" = "H" ]; then
+        e2label "${targetDevice}$nr" "HOME"
+      elif [ "$type" = "D" ]; then
+        e2label "${targetDevice}$nr" "DATA"
+      fi
+    else
+      msg "info: initializing swap-device ${targetDevice}$nr"
+      mkswap "${targetDevice}$nr"
+    fi
+  done
+}
+
 # create home/data partition on SD-card   -------------------------------------
 
 createPartition() {
-  local pNr="$1" partSize="$2" pSize
+  local pNr="$1" partSize="$2" partType="$3" pSize pType
 
-  let pSize=partSize-1    # fdisk uses zero based values and
-  pSize="+$pSize"         # pSize is the relative position
+  if [ "$partSize" = "rest" -o "$partType" = "E" ]; then
+    pSize=""
+  else
+    let pSize=partSize-1    # fdisk uses zero based values and
+    pSize="+$pSize"         # pSize is the relative position
+  fi
+
+  if [ "$partType" = "E" ]; then
+    pType="e\n"
+  elif [ $pNr -lt 4 ]; then
+    pType="p\n"
+  else
+    pType=""
+  fi
+
+  if [ "$partType" = "E" ]; then
+    pHex=""
+  elif [ "$partType" = "S" ]; then
+    pHex="t\n${pNr}\n82\n"
+  else
+    pHex="t\n${pNr}\n83\n"
+  fi
 
   # keep track of partition in case we have to delete the entry
   # from the boot device
@@ -543,15 +577,16 @@ createPartition() {
   
   # create partition
   #        /- new
-  #        |  /- primary partition
-  #        |  |  /- partition nr. pNr
-  #        |  |  |       /- first sector
-  #        |  |  |       |             /- end sector (relative)
-  #        |  |  |       |             |         /- write table
-  #        |  |  |       |             |         |  /- print table
-  #        |  |  |       |             |         |  |
-  #        v  v  v       v             v         v  v
-  echo -e "n\np\n${pNr}\n${startFree}\n${pSize}\nw\np\n" | fdisk "$targetDevice"
+  #        |  /- partition type
+  #        |  |       /- partition nr. pNr
+  #        |  |       |       /- first sector
+  #        |  |       |       |             /- end sector (relative)
+  #        |  |       |       |             |         /- hex-type
+  #        |  |       |       |             |         |      /- write table
+  #        |  |       |       |             |         |      |  /- print table
+  #        |  |       |       |             |         |      |  |
+  #        v  v       v       v             v         v      v  v
+  echo -e "n\n${pType}${pNr}\n${startFree}\n${pSize}\n${pHex}w\np\n" | fdisk "$targetDevice"
 
   local i=0
   while [ ! -b "${targetDevice}$pNr" -a $i -lt 3 ]; do
@@ -569,53 +604,12 @@ createPartition() {
     exit 3
   fi
 
-  msg "info: formatting partition $pNr with $FS_TYPE"
-  mkfs.$FS_TYPE -E "lazy_itable_init=0,lazy_journal_init=0"  "${targetDevice}$pNr"
-
   # update startFree
-  let startFree+=partSize
-}
-
-# create swap partition on SD-card   ------------------------------------------
-
-createSwap() {
-  local pSize=""                           # fdisk-default: the rest
-
-  if [ "$sizeSwap" != "rest" ]; then
-    let pSize=sizeSwap-1
-    pSize="+$pSize"
+  if [ "$partType" = "E" ]; then
+    let startFree+=sizeExt
+  else
+    let startFree+=partSize
   fi
-  
-  # keep track of partition in case we have to delete the entry
-  # from the boot device
-  delPartitionCmd+="d\n${nrSwap}\n"
-
-  msg "info: creating swap with size $sizeSwap"
-  
-  # create partition
-  #        /- new
-  #        |  /- primary partition
-  #        |  |  /- partition nr. swapNr
-  #        |  |  |  /- first sector
-  #        |  |  |          |             /- new size or last sector or empty
-  #        |  |  |          |             |         /- partition type
-  #        |  |  |          |             |         |   /- part nr
-  #        |  |  |          |             |         |   |         /- type 82
-  #        v  v  v          v             v         v   v         v
-  echo -e "n\np\n${nrSwap}\n${startFree}\n${pSize}\nt\n${nrSwap}\n82\n\
-w\np\n" | fdisk "$targetDevice"
-  while ! test -b "${targetDevice}$nrSwap"; do
-    msg "info: sleeping 3 second before rereading partition-table"
-    sleep 3
-    if [ "$targetType" = "block" ]; then
-      partprobe
-    else
-      setupLoop "upd"
-    fi
-  done
-
-  msg "info: initializing swap-device ${targetDevice}$nrSwap"
-  mkswap "${targetDevice}$nrSwap"
 }
 
 # move files from /home to new partition   ------------------------------------
@@ -892,21 +886,8 @@ main() {
 
   if [ "$targetType" != "partition" ]; then
     resizeRoot
-    if [ "$sizeHome" != "0" ]; then
-      let nrSwap+=1
-      let nrData+=1
-      createPartition "$nrHome" "$sizeHome"
-      [ "$FS_TYPE" = ext4 ] && e2label "${targetDevice}$nrHome" "HOME"
-    fi
-    if [ "$sizeData" != "0" ]; then
-      let nrSwap+=1
-      createPartition "$nrData" "$sizeData"
-      [ "$FS_TYPE" = ext4 ] && e2label "${targetDevice}$nrData" "DATA"
-    fi
-    [ "$sizeSwap" != "0" ] && createSwap
-
-    # move files from /home to new partition if necessary
-    moveHome
+    createPartitions
+    moveHome           # move files from /home to new partition if necessary
   fi
 
   if [ -n "$phase2Script" ]; then
