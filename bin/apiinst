@@ -232,7 +232,8 @@ checkArguments() {
     if [ "$size" = "rest" -a $index -ne $newPartsCount ]; then
       msg "error: only the last partition can take up the rest of the free space!"
       exit 3
-  fi
+    fi
+  done
 
   # check qemu-mode
   if [ $qemuMode -eq 1 -a "$targetType" != "image" ]; then
