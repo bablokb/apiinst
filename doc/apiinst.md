@@ -21,6 +21,9 @@ must be run as root and has builtin help:
                     (use size>0 or 'rest')
         -S size     create a swap--partition of given size (default: no swap)
                     (use size>0 or 'rest')
+        -Y size     create additional system-partition of given size
+                    (default: no additional system-partition)
+
         -n          don't expand root partition
                     (note that '-H rest' or '-S rest' will also prevent expansion)
     
@@ -107,6 +110,11 @@ will be automatically mounted to `/data`.
 
 You could also add a swap partition (using the option `-S size`), but additional
 swap is seldom necessary.
+
+If you want to put multiple systems on the sd-card, you can add empty
+partitions with the option `-Y size` (this option can appear multiple times).
+This is especially helpful with a boot-switcher, see
+[pi-boot-switch](https://github.com/bablokb/pi-boot-switch "pi-boot-switch").
 
 The real benefit of apiinst is the possibility to copy files from a
 template directory to the sd-card. You can add any number of directories
