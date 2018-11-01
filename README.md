@@ -4,6 +4,7 @@ The Automatic Pi Installer
 News
 ----
 
+- **2018/11**: add support for additional system-partitions
 - **2016/07**: support images, optionally targeted at QEmu
                (see [qemu.md](./doc/qemu.md "qemu.md"))
 - **2016/06**: added support for creating a data-partition
