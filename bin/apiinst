@@ -34,6 +34,7 @@
 
 MNT_DATA="data"                             # directory within /
 FS_TYPE="ext4"                              # filesystem type for home, data
+LOG_OVERHEAD=2048                           # overhead logical partitions
 
 # check program prerequisites   -----------------------------------------------
 
@@ -100,7 +101,8 @@ usage() {
 setDefaults() {
   declare -g -a newPartsType newPartsSize
   nrHome=""
-  nrDate=""
+  nrData=""
+  nrSwap=""
   newPartsNr=1
   prepMode=0
   delPartitionCmd="d\n2\n"
@@ -415,24 +417,22 @@ calcSizes() {
   let sizeUsed+=1
   let sizeFree=sizeDev-sizeUsed
 
-  # check if need overhead-space for extended partition
-  if [ $newPartsNr -gt 3 ]; then
-    let sizeExt=8x512
-  else
-    let sizeExt=0
-  fi
-  let sizeFree-=sizeExt
-
   msg "info: startRoot:  $startRoot"
   msg "info: sizeUsed:   $sizeUsed"
-  msg "info: sizeExt:    $sizeExt"
   msg "info: sizeFree:   $sizeFree"
-
 
   # total size requested (without "rest")
   local size sizeNeeded=0
-  for size in "${newPartsSize[@]}"; do
-    [ "$size" != "rest" ] && let sizeNeeded+="$size"
+  for index in "${!newPartsSize[@]}"; do
+    size="${newPartType[$index]}"
+    if [ "$size" != "rest" ]; then
+      if [ $index -gt 1 -a $newPartsNr -gt 3 ]; then
+        let size+=$LOG_OVERHEAD
+      fi
+      let sizeNeeded+=$size
+    else
+      let sizeNeeded+=$LOG_OVERHEAD
+    fi
     msg "info: size${newPartType[$index]}:      $newPartSize[$index]"
   done
 
@@ -541,6 +541,7 @@ createPartitions() {
     else
       msg "info: initializing swap-device ${targetDevice}$nr"
       mkswap "${targetDevice}$nr"
+      nrSwap="$nr"
     fi
   done
 }
@@ -719,15 +720,15 @@ cleanupFiles() {
 
 updateFiles() {
   # add home and/or swap partition to /etc/fstab
-  if [ "$sizeHome" != "0" ]; then
+  if [ -n "$nrHome" ]; then
       echo -e "\n#\n/dev/mmcblk0p$nrHome  /home auto noatime,acl,user_xattr 1 2" >> \
                                                              "$mntDir/etc/fstab"
   fi
-  if [ "$sizeData" != "0" ]; then
+  if [ -n "$nrData" ]; then
       echo -e "\n#\n/dev/mmcblk0p$nrData  /$MNT_DATA auto noatime,acl,user_xattr 1 2" >> \
                                                              "$mntDir/etc/fstab"
   fi
-  if [ "$sizeSwap" != "0" ]; then
+  if [ -n "$nrSwap" ]; then
       echo -e "\n#\n/dev/mmcblk0p$nrSwap  swap swap defaults 0 0" >> \
                                                              "$mntDir/etc/fstab"
   fi
@@ -753,11 +754,11 @@ updateFiles() {
 
 umountPartitions() {
   if [ "$targetType" != "partition" ]; then
-    if [ -b "${targetDevice}$nrHome"  -a "$sizeHome" != "0" ]; then
+    if [ -n "$nrHome" ]; then
       msg "info: unmounting ${targetDevice}$nrHome"
       umount "$mntDir/home"
     fi
-    if [ -b "${targetDevice}$nrData"  -a "$sizeData" != "0" ]; then
+    if [ -n "$nrData" ]; then
       msg "info: unmounting ${targetDevice}$nrData"
       umount "$mntDir/$MNT_DATA"
     fi
