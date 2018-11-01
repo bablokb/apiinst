@@ -146,6 +146,7 @@ parseArguments() {
 
   shift $((OPTIND-1))
   dirs=("$@")
+  let newPartsCount=newPartsNr-1
 }
 
 # save partition-info for later processing   ----------------------------------
@@ -219,7 +220,7 @@ checkArguments() {
 
   # check invalid options for target-type "partition"
   if [ "$targetType" = "partition" ]; then
-    if [ $newPartsNr -gt 1 ]; then
+    if [ $newPartsCount -gt 0 ]; then
       msg "error: options -H/-D/-S/-Y not supported if target is a partition!"
       exit 3
     fi
@@ -426,7 +427,7 @@ calcSizes() {
   for index in "${!newPartsSize[@]}"; do
     size="${newPartType[$index]}"
     if [ "$size" != "rest" ]; then
-      if [ $index -gt 1 -a $newPartsNr -gt 3 ]; then
+      if [ $index -gt 1 -a $newPartsCount -gt 2 ]; then
         let size+=$LOG_OVERHEAD
       fi
       let sizeNeeded+=$size
@@ -518,7 +519,7 @@ createPartitions() {
     let nr=index+offset
 
     # add extended partition if we need more than two additional partitions
-    if [ $newPartsNr -gt 3 -a $nr -eq 4 ]; then
+    if [ $newPartsCount -gt 2 -a $nr -eq 4 ]; then
       createPartition 4 $sizeExt E
       let nr+=1
       let offset+=1
