@@ -546,11 +546,12 @@ createPartitions() {
   done
 }
 
-# create home/data partition on SD-card   -------------------------------------
+# create new partition on SD-card   ------------------------------------------
 
 createPartition() {
-  local pNr="$1" partSize="$2" partType="$3" pSize pType
+  local pNr="$1" partSize="$2" partType="$3" pSize pType pStart
 
+  # partitition size
   if [ "$partSize" = "rest" -o "$partType" = "E" ]; then
     pSize=""
   else
@@ -558,6 +559,7 @@ createPartition() {
     pSize="+$pSize"         # pSize is the relative position
   fi
 
+  # partition type
   if [ "$partType" = "E" ]; then
     pType="e\n"
   elif [ $pNr -lt 4 ]; then
@@ -566,6 +568,14 @@ createPartition() {
     pType=""
   fi
 
+  # first sector (use default for logical partitions)
+  if [ $pNr -le 4 ]; then
+    pStart="$startFree"
+  else
+    pStart=""
+  fi
+
+  # filesystem type
   if [ "$partType" = "E" ]; then
     pHex=""
   elif [ "$partType" = "S" ]; then
@@ -576,7 +586,7 @@ createPartition() {
 
   # keep track of partition in case we have to delete the entry
   # from the boot device
-  delPartitionCmd+="d\n${pNr}\n"
+  [ $pNr -le 4 ] && delPartitionCmd+="d\n${pNr}\n"
 
   msg "info: creating partition $pNr with size $partSize"
   
@@ -585,13 +595,13 @@ createPartition() {
   #        |  /- partition type
   #        |  |       /- partition nr. pNr
   #        |  |       |       /- first sector
-  #        |  |       |       |             /- end sector (relative)
-  #        |  |       |       |             |         /- hex-type
-  #        |  |       |       |             |         |      /- write table
-  #        |  |       |       |             |         |      |  /- print table
-  #        |  |       |       |             |         |      |  |
-  #        v  v       v       v             v         v      v  v
-  echo -e "n\n${pType}${pNr}\n${startFree}\n${pSize}\n${pHex}w\np\n" | fdisk "$targetDevice"
+  #        |  |       |       |          /- end sector (relative)
+  #        |  |       |       |          |         /- hex-type
+  #        |  |       |       |          |         |      /- write table
+  #        |  |       |       |          |         |      |  /- print table
+  #        |  |       |       |          |         |      |  |
+  #        v  v       v       v          v         v      v  v
+  echo -e "n\n${pType}${pNr}\n${pStart}\n${pSize}\n${pHex}w\np\n" | fdisk "$targetDevice"
 
   local i=0
   while [ ! -b "${targetDevice}$pNr" -a $i -lt 3 ]; do
@@ -610,9 +620,7 @@ createPartition() {
   fi
 
   # update startFree
-  if [ "$partType" = "E" ]; then
-    let startFree+=sizeExt
-  else
+  if [ $pNr -le 3 ]; then
     let startFree+=partSize
   fi
 }
