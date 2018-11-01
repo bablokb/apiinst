@@ -350,6 +350,16 @@ writeSD() {
 
   if [ -n "$upcmd" ]; then
     if [ "$targetType" = "partition" ]; then
+      # check free space for temporary unzip of image
+      # we assume that the compressed images is not less than 1/6 of the source
+      local temp_dir="${TMPDIR:-/tmp}"
+      local fs_free=$(($(stat -f -c '%f*%S/1024' $temp_dir)))
+      local imgSize=$(($(stat -c"6*%s/1024" "$sourceImage")))
+      if [ $fs_free -lt $imgSize ]; then
+        msg "error: not enough temporary space available, try setting TMPDIR!"
+        exit 3
+      fi
+
       tmpSourceImage=`mktemp  --tmpdir apiinst.XXXXXX`
       msg "info: unpacking $sourceImage to $tmpSourceImage with $upcmd"
       eval "$pgm" "$sourceImage" | eval "$upcmd" > "$tmpSourceImage"
