@@ -154,6 +154,7 @@ parseArguments() {
 addPart() {
   newPartsType[$newPartsNr]="$1"
   newPartsSize[$newPartsNr]=$(convertSize "$2")
+  msg "info: add partition $newPartsNr (type: $1, size: ${newPartsSize[$newPartsNr]})"
   let newPartsNr+=1
 }
 
@@ -432,18 +433,18 @@ calcSizes() {
   msg "info: sizeFree:   $sizeFree"
 
   # total size requested (without "rest")
-  local size sizeNeeded=0
+  local size sizeNeeded=0 haveRest=0
   for index in "${!newPartsSize[@]}"; do
-    size="${newPartType[$index]}"
+    size="${newPartsSize[$index]}"
     if [ "$size" != "rest" ]; then
       if [ $index -gt 1 -a $newPartsCount -gt 2 ]; then
         let size+=$LOG_OVERHEAD
       fi
       let sizeNeeded+=$size
     else
-      let sizeNeeded+=$LOG_OVERHEAD
+      haveRest=1
     fi
-    msg "info: size${newPartType[$index]}:      $newPartSize[$index]"
+    msg "info: size${newPartsType[$index]}:      ${newPartsSize[$index]}"
   done
 
   msg "info: sizeNeeded: $sizeNeeded"
@@ -454,7 +455,7 @@ calcSizes() {
 
   # calculate additional size for root (aligned to 2048-byte boundary)
   let addRoot=0
-  if [ $expand -eq 1 ]; then
+  if [ $expand -eq 1 -a $haveRest -eq 0 ]; then
     let addRoot=\(sizeFree-sizeNeeded\)/2048*2048
   fi
   msg "info: addRoot:    $addRoot"
@@ -522,23 +523,25 @@ resizeRoot() {
 
 createPartitions() {
   local index size type nr offset=2
-  for index in "${newPartsSize[@]}"; do
-    size="$newPartSize[$index]"
-    type="$newPartType[$index]"
+  for index in "${!newPartsSize[@]}"; do
+    size="${newPartsSize[$index]}"
+    type="${newPartsType[$index]}"
     let nr=index+offset
 
     # add extended partition if we need more than two additional partitions
     if [ $newPartsCount -gt 2 -a $nr -eq 4 ]; then
-      createPartition 4 $sizeExt E
+      msg "info: creating partition 4 (size: rest, type: E)"
+      createPartition 4 "rest" E
       let nr+=1
       let offset+=1
     fi
 
     # create partition of given type
+    msg "info: creating partition $nr (size: $size, type: $type)"
     createPartition $nr $size $type
 
     if [ "$type" != "S" ]; then
-      msg "info: formatting partition $pNr with $FS_TYPE"
+      msg "info: formatting partition $nr with $FS_TYPE"
       mkfs.$FS_TYPE -E "lazy_itable_init=0,lazy_journal_init=0" \
                                                 "${targetDevice}$nr"
       if [ "$type" = "H" ]; then
@@ -559,7 +562,14 @@ createPartitions() {
 # create new partition on SD-card   ------------------------------------------
 
 createPartition() {
-  local pNr="$1" partSize="$2" partType="$3" pSize pType pStart
+  local partNr="$1" partSize="$2" partType="$3" pNr pSize pType pStart
+
+  # partition nr
+  if [ $partNr -le 3 ]; then
+    pNr="$partNr\n"
+  else
+    pNr=""
+  fi
 
   # partitition size
   if [ "$partSize" = "rest" -o "$partType" = "E" ]; then
@@ -572,14 +582,14 @@ createPartition() {
   # partition type
   if [ "$partType" = "E" ]; then
     pType="e\n"
-  elif [ $pNr -lt 4 ]; then
+  elif [ $partNr -le 4 ]; then
     pType="p\n"
   else
     pType=""
   fi
 
   # first sector (use default for logical partitions)
-  if [ $pNr -le 4 ]; then
+  if [ $partNr -le 4 ]; then
     pStart="$startFree"
   else
     pStart=""
@@ -589,32 +599,35 @@ createPartition() {
   if [ "$partType" = "E" ]; then
     pHex=""
   elif [ "$partType" = "S" ]; then
-    pHex="t\n${pNr}\n82\n"
+    pHex="t\n${partNr}\n82\n"
   else
-    pHex="t\n${pNr}\n83\n"
+    pHex="t\n${partNr}\n83\n"
   fi
 
   # keep track of partition in case we have to delete the entry
   # from the boot device
-  [ $pNr -le 4 ] && delPartitionCmd+="d\n${pNr}\n"
+  [ $partNr -le 4 ] && delPartitionCmd+="d\n${partNr}\n"
 
-  msg "info: creating partition $pNr with size $partSize"
-  
+  msg "info: creating partition $partNr with size $partSize (type: ${pType:-L})"
+
   # create partition
-  #        /- new
-  #        |  /- partition type
-  #        |  |       /- partition nr. pNr
-  #        |  |       |       /- first sector
-  #        |  |       |       |          /- end sector (relative)
-  #        |  |       |       |          |         /- hex-type
-  #        |  |       |       |          |         |      /- write table
-  #        |  |       |       |          |         |      |  /- print table
-  #        |  |       |       |          |         |      |  |
-  #        v  v       v       v          v         v      v  v
-  echo -e "n\n${pType}${pNr}\n${pStart}\n${pSize}\n${pHex}w\np\n" | fdisk "$targetDevice"
+  #         /- new
+  #         |  /- partition type
+  #         |  |       /- partition nr. pNr
+  #         |  |       |     /- first sector
+  #         |  |       |     |          /- end sector (relative)
+  #         |  |       |     |          |         /- hex-type
+  #         |  |       |     |          |         |      /- write table
+  #         |  |       |     |          |         |      |  /- print table
+  #         |  |       |     |          |         |      |  |
+  #         v  v       v     v          v         v      v  v
+  fdiskcmd="n\n${pType}${pNr}${pStart}\n${pSize}\n${pHex}w\np\n"
+
+  msg "info: fdisk-command: $fdiskcmd"
+  echo -e "$fdiskcmd" | fdisk "$targetDevice"
 
   local i=0
-  while [ ! -b "${targetDevice}$pNr" -a $i -lt 3 ]; do
+  while [ ! -b "${targetDevice}$partNr" -a $i -lt 3 ]; do
     msg "info: sleeping 3 second before rereading partition-table"
     sleep 3
     if [ "$targetType" = "block" ]; then
@@ -625,13 +638,14 @@ createPartition() {
     let i+=1
   done
   if [ $i -eq 3 ]; then
-    msg "error: failed to create partition $pNr" 
+    msg "error: failed to create partition $partNr"
     exit 3
   fi
 
   # update startFree
-  if [ $pNr -le 3 ]; then
+  if [ $partNr -le 3 ]; then
     let startFree+=partSize
+    msg "info: startFree: $startFree"
   fi
 }
 
