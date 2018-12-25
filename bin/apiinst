@@ -550,6 +550,9 @@ createPartitions() {
       elif [ "$type" = "D" ]; then
         e2label "${targetDevice}$nr" "DATA"
         nrData="$nr"
+      elif [ "$type" = "Y" ]; then
+        e2label "${targetDevice}$nr" "SYSTEM p$nr"
+        nrData="$nr"
       fi
     else
       msg "info: initializing swap-device ${targetDevice}$nr"
