@@ -183,6 +183,17 @@ checkArguments() {
     usage
   fi
 
+  # targetDevName is the name of the target after installation
+  # (we might install to /dev/sdb3, but in the running system it will
+  # be /dev/mmcblk0p3 or /dev/sda3)
+  # Syntax is -t target[=name], e.g. -t /dev/sdb=/dev/sda
+  # name defaults to /dev/mmcblk0p[nr]
+
+  targetDevName="${targetDevice#*=}"
+  targetDevice="${targetDevice%=*}"
+  [ "$targetDevName" = "$targetDevice" ] && \
+          targetDevName=$(sed -e "s/sd./mmcblk0p/" <<< "$targetDevice")
+
   if [ -b "$targetDevice" ]; then
     if grep -wq "$targetDevice." /etc/mtab; then
       msg "error: partition from device $targetDevice is already mounted!" 
@@ -755,16 +766,17 @@ cleanupFiles() {
 
 updateFiles() {
   # add home and/or swap partition to /etc/fstab
+  # Note targetDevName is a block-device name here
   if [ -n "$nrHome" ]; then
-      echo -e "\n#\n/dev/mmcblk0p$nrHome  /home auto noatime,acl,user_xattr 1 2" >> \
+      echo -e "\n#\n/${targetDevName}$nrHome  /home auto noatime,acl,user_xattr 1 2" >> \
                                                              "$mntDir/etc/fstab"
   fi
   if [ -n "$nrData" ]; then
-      echo -e "\n#\n/dev/mmcblk0p$nrData  /$MNT_DATA auto noatime,acl,user_xattr 1 2" >> \
+      echo -e "\n#\n/dev/${targetDevName}$nrData  /$MNT_DATA auto noatime,acl,user_xattr 1 2" >> \
                                                              "$mntDir/etc/fstab"
   fi
   if [ -n "$nrSwap" ]; then
-      echo -e "\n#\n/dev/mmcblk0p$nrSwap  swap swap defaults 0 0" >> \
+      echo -e "\n#\n/dev/${targetDevName}$nrSwap  swap swap defaults 0 0" >> \
                                                              "$mntDir/etc/fstab"
   fi
 
@@ -776,12 +788,12 @@ updateFiles() {
   fi
 
   # target-type "partition" needs special care
+  # Note targetDevName is a partition-device name here
   if [ "$targetType" = "partition" ]; then
-    pNr="${targetDevice: -1}"
     msg "info: fixing $mntDir/etc/fstab"
-    sed -i  -e "/\W\/\W/s,^[^ \t]*,/dev/mmcblk0p$pNr," "$mntDir/etc/fstab"
+    sed -i  -e "/\W\/\W/s,^[^ \t]*,${targetDevName}," "$mntDir/etc/fstab"
     msg "info: fixing $mntDir/boot/cmdline.txt"
-    sed -i -e "s,root=[^ ]*,root=/dev/mmcblk0p$pNr," "$mntDir/boot/cmdline.txt"
+    sed -i -e "s,root=[^ ]*,root=${targetDevName}," "$mntDir/boot/cmdline.txt"
   fi
 }
 
