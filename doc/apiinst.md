@@ -116,6 +116,10 @@ partitions with the option `-Y size` (this option can appear multiple times).
 This is especially helpful with a boot-switcher, see
 [pi-boot-switch](https://github.com/bablokb/pi-boot-switch "pi-boot-switch").
 
+
+Using templates
+---------------
+
 The real benefit of apiinst is the possibility to copy files from a
 template directory to the sd-card. You can add any number of directories
 to the command, all files from all directories are copied to the sd-card
@@ -128,6 +132,21 @@ This example uses two directories, one for configuration files and one for
 user files. If you want to use a single or multiple directories is a 
 matter of taste. Multiple directories come in handy if you want to 
 support multiple configurations which share some common files.
+
+
+Installing to a partition
+-------------------------
+
+You can also install to a partition other than the second partition.
+In this case the argument passed to the `-t` option is not a block device,
+but a partition on a block device.
+
+You need a boot-switcher to boot from a partition other than the second
+partition. Currently apiinst only supports
+[pi-boot-switch](https://github.com/bablokb/pi-boot-switch "pi-boot-switch").
+The installation prepares the system on the target partition. After
+installation, you have to boot the old system and then use the
+`pi-boot-switch`-script to reboot into the newly installed system.
 
 
 Image files
