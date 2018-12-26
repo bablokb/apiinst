@@ -71,27 +71,28 @@ usage() {
   echo -e "\n$pgm: Write an (Raspberry Pi) image of a sd-card to a physical sd-card\n`tr '[:alnum:]' ' ' <<< \"$pgm\"`  and copy additional files from all given directories to the sd-card\n\
   \nusage: `basename $0` -i image -t target [options] [dir [...]]\n\
   Possible options:\n\
-    -i image      source image (required)\n\
-    -t target     target device (required, e.g. /dev/sdc or /dev/sdc1)\n\
-    -B boot       boot device (optional, target device is USB-HDD/SSD)\n\n\
-    -P            preparation mode\n\n\
-    -H size       create a home-partition of given size (default: no home)\n\
-                  (use size>0 or 'rest')\n\
-    -D size       create a data-partition of given size (default: no data)\n\
-                  (use size>0 or 'rest')\n\
-    -S size       create a swap-partition of given size (default: no swap)\n\
-                  (use size>0 or 'rest')\n\
-    -Y s          create additional system-partition of given size\n\
-                  (default: no additional system-partition)\n\n\
-    -n            don't expand root partition\n\
-                  (note that '-H rest' or '-S rest' will also prevent expansion)\n\n\
-    -k            keep all files\n\n\
-    -Q            prepare image for Qemu (needs image-file as target)\n\
-    -L logfile    write log-messages additionally to given logfile\n\
-    -1 script     run the given script after  copying the image to SD\n\
-    -2 script     run the given script after  resizing/partition creation\n\
-    -3 script     run the given script after  copying template files to the SD\n\
-    -h            show this help\n\
+    -i image          source image (required)\n\
+    -t target[=name]  target device (required, e.g. /dev/sdc or /dev/sdc1)\n\
+                      (name defaults to /dev/mmcblk0p)\n\
+    -B boot           boot device (optional, target device is USB-HDD/SSD)\n\n\
+    -P                preparation mode\n\n\
+    -H size           create a home-partition of given size (default: no home)\n\
+                      (use size>0 or 'rest')\n\
+    -D size           create a data-partition of given size (default: no data)\n\
+                      (use size>0 or 'rest')\n\
+    -S size           create a swap-partition of given size (default: no swap)\n\
+                      (use size>0 or 'rest')\n\
+    -Y s              create additional system-partition of given size\n\
+                      (default: no additional system-partition)\n\n\
+    -n                don't expand root partition\n\
+                      (note that '-H rest' or '-S rest' will also prevent expansion)\n\n\
+    -k                 keep all files\n\n\
+    -Q                 prepare image for Qemu (needs image-file as target)\n\
+    -L logfile         write log-messages additionally to given logfile\n\
+    -1 script          run the given script after  copying the image to SD\n\
+    -2 script          run the given script after  resizing/partition creation\n\
+    -3 script          run the given script after  copying template files to the SD\n\
+    -h                 show this help\n\
 "
   exit 3
 }
