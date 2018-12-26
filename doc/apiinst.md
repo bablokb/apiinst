@@ -11,6 +11,7 @@ must be run as root and has builtin help:
       Possible options:
         -i image    source image (required)
         -t target   target device (required, e.g. /dev/sdc)
+                    (name defaults to /dev/mmcblk0p)
         -B boot     boot device (optional, target device is USB-HDD/SSD)
     
         -P          preparation mode
@@ -210,3 +211,23 @@ of `apiinst` as described above.
 
 **Be careful with the selection of the boot-device and root-device,
 all data on both devices will be erased!**
+
+
+Renaming the target
+-------------------
+
+Usually the naming of block-devices and partitions is different between the
+system used to *install* Raspbian, and the system *running* Raspbian.
+Apiinst will therefore rename the target device from e.g. `/dev/sdb` to
+`/dev/mmcblk0p`. This affects the files `/boot/cmdline.txt` and
+`/etc/fstab`.
+
+Although the default is fine for most use-cases, in special circumstances
+you might want to use a different target-name. An example is the
+installation of a system to a partition on an USB-stick. This will
+usually be `/dev/sda` on a running Raspbian-system. In this case,
+you would use the command
+
+    apiinst -i ... -t /dev/sdb3=/dev/sda3 ...
+
+to install to `/dev/sdb3` and use `/dev/sda3` during runtime.
