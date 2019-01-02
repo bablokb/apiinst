@@ -564,7 +564,6 @@ createPartitions() {
         nrData="$nr"
       elif [ "$type" = "Y" ]; then
         e2label "${targetDevice}$nr" "SYSTEM p$nr"
-        nrData="$nr"
       fi
     else
       msg "info: initializing swap-device ${targetDevice}$nr"
@@ -769,15 +768,15 @@ updateFiles() {
   # add home and/or swap partition to /etc/fstab
   # Note targetDevName is a block-device name here
   if [ -n "$nrHome" ]; then
-      echo -e "\n#\n/${targetDevName}$nrHome  /home auto noatime,acl,user_xattr 1 2" >> \
+      echo -e "\n#\n${targetDevName}$nrHome  /home auto noatime,acl,user_xattr 1 2" >> \
                                                              "$mntDir/etc/fstab"
   fi
   if [ -n "$nrData" ]; then
-      echo -e "\n#\n/dev/${targetDevName}$nrData  /$MNT_DATA auto noatime,acl,user_xattr 1 2" >> \
+      echo -e "\n#\n${targetDevName}$nrData  /$MNT_DATA auto noatime,acl,user_xattr 1 2" >> \
                                                              "$mntDir/etc/fstab"
   fi
   if [ -n "$nrSwap" ]; then
-      echo -e "\n#\n/dev/${targetDevName}$nrSwap  swap swap defaults 0 0" >> \
+      echo -e "\n#\n${targetDevName}$nrSwap  swap swap defaults 0 0" >> \
                                                              "$mntDir/etc/fstab"
   fi
 
