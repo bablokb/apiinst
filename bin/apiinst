@@ -787,10 +787,20 @@ updateFiles() {
                                                            "$mntDir/etc/rc.local"
   fi
 
-  # target-type "partition" needs special care
-  # Note targetDevName is a partition-device name here
-  if [ "$targetType" = "partition" ]; then
-    msg "info: fixing $mntDir/etc/fstab"
+  msg "info: fixing $mntDir/etc/fstab"
+  if [ "$targetType" = "block" ]; then
+    # Note targetDevName is a partition-device name here
+    sed -i  -e "/\W\/boot\W/s,^[^ \t]*,${targetDevName}1," "$mntDir/etc/fstab"
+    sed -i  -e "/\W\/\W/s,^[^ \t]*,${targetDevName}2," "$mntDir/etc/fstab"
+    msg "info: fixing $mntDir/boot/cmdline.txt"
+    sed -i -e "s,root=[^ ]*,root=${targetDevName}2," "$mntDir/boot/cmdline.txt"
+  elif [ "$targetType" = "partition" ]; then
+    # Note targetDevName is a partition-device name here
+    if [ "${targetDevName:0:13}" = "/dev/mmcblk0p" ]; then
+      sed -i  -e "/\W\/boot\W/s,^[^ \t]*,/dev/mmcblk0p1," "$mntDir/etc/fstab"
+    else
+      sed -i  -e "/\W\/boot\W/s,^[^ \t]*,${targetDevName%%[0-9]*}1," "$mntDir/etc/fstab"
+    fi
     sed -i  -e "/\W\/\W/s,^[^ \t]*,${targetDevName}," "$mntDir/etc/fstab"
     msg "info: fixing $mntDir/boot/cmdline.txt"
     sed -i -e "s,root=[^ ]*,root=${targetDevName}," "$mntDir/boot/cmdline.txt"
