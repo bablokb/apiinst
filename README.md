@@ -4,6 +4,7 @@ The Automatic Pi Installer
 News
 ----
 
+- **2019/03**  added support for UUIDs instead of device-names
 - **2018/11**: add support for additional system-partitions
 - **2016/07**: support images, optionally targeted at QEmu
                (see [qemu.md](./doc/qemu.md "qemu.md"))
