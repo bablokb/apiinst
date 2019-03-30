@@ -88,6 +88,7 @@ usage() {
                       (note that '-H rest' or '-S rest' will also prevent expansion)\n\n\
     -k                 keep all files\n\n\
     -Q                 prepare image for Qemu (needs image-file as target)\n\
+    -U                 use UUIDs instead of device-names\n\
     -L logfile         write log-messages additionally to given logfile\n\
     -1 script          run the given script after  copying the image to SD\n\
     -2 script          run the given script after  resizing/partition creation\n\
@@ -117,12 +118,13 @@ setDefaults() {
   phase3Script=""
   logFile="/dev/null"
   qemuMode=0
+  useUUID=0
 }
 
 # parse arguments and set variables -------------------------------------------
 
 parseArguments() {
-  while getopts ":i:t:B:L:H:D:S:Y:nkQP1:2:3:vhd" opt; do
+  while getopts ":i:t:B:L:H:D:S:Y:nkUQP1:2:3:vhd" opt; do
     case $opt in
       i) sourceImage="$OPTARG";;
       t) targetDevice="$OPTARG";;
@@ -134,6 +136,7 @@ parseArguments() {
       Y) addPart "Y" "$OPTARG";;
       n) expand=0;;
       k) keepFiles=1;;
+      U) useUUID=1;;
       Q) qemuMode=1;;
       P) prepMode=1;;
       1) phase1Script="$OPTARG";;
@@ -786,16 +789,37 @@ updateFiles() {
   # add home and/or swap partition to /etc/fstab
   # Note targetDevName is a block-device name here
   if [ -n "$nrHome" ]; then
+    if [ "$useUUID" -eq 1 ]; then
+      uuid=$(blkid -o export -s UUID "${targetDevice}$nrHome" | \
+                                        sed -ne "/UUID/s/UUID=//p")
+      echo -e "\n#\nUUID=$uuid  /home auto noatime,acl,user_xattr 1 2" >> \
+                                                             "$mntDir/etc/fstab"
+    else
       echo -e "\n#\n${targetDevName}$nrHome  /home auto noatime,acl,user_xattr 1 2" >> \
                                                              "$mntDir/etc/fstab"
+    fi
   fi
   if [ -n "$nrData" ]; then
+    if [ "$useUUID" -eq 1 ]; then
+      uuid=$(blkid -o export -s UUID "${targetDevice}$nrData" | \
+                                        sed -ne "/UUID/s/UUID=//p")
+      echo -e "\n#\nUUID=$uuid  /$MNT_DATA auto noatime,acl,user_xattr 1 2" >> \
+                                                             "$mntDir/etc/fstab"
+    else
       echo -e "\n#\n${targetDevName}$nrData  /$MNT_DATA auto noatime,acl,user_xattr 1 2" >> \
                                                              "$mntDir/etc/fstab"
+    fi
   fi
   if [ -n "$nrSwap" ]; then
+    if [ "$useUUID" -eq 1 ]; then
+      uuid=$(blkid -o export -s UUID "${targetDevice}$nrSwap" | \
+                                        sed -ne "/UUID/s/UUID=//p")
+      echo -e "\n#\nUUID=$uuid  swap swap defaults 0 0" >> \
+                                                             "$mntDir/etc/fstab"
+    else
       echo -e "\n#\n${targetDevName}$nrSwap  swap swap defaults 0 0" >> \
                                                              "$mntDir/etc/fstab"
+    fi
   fi
 
   # add one-time boot-script apiinst2 to /etc/rc.local
@@ -805,23 +829,59 @@ updateFiles() {
                                                            "$mntDir/etc/rc.local"
   fi
 
-  msg "info: fixing $mntDir/etc/fstab"
   if [ "$targetType" = "block" ]; then
     # Note targetDevName is a partition-device name here
-    sed -i  -e "/\W\/boot\W/s,^[^ \t]*,${targetDevName}1," "$mntDir/etc/fstab"
-    sed -i  -e "/\W\/\W/s,^[^ \t]*,${targetDevName}2," "$mntDir/etc/fstab"
-    msg "info: fixing $mntDir/boot/cmdline.txt"
-    sed -i -e "s,root=[^ ]*,root=${targetDevName}2," "$mntDir/boot/cmdline.txt"
-  elif [ "$targetType" = "partition" ]; then
-    # Note targetDevName is a partition-device name here
-    if [ "${targetDevName:0:13}" = "/dev/mmcblk0p" ]; then
-      sed -i  -e "/\W\/boot\W/s,^[^ \t]*,/dev/mmcblk0p1," "$mntDir/etc/fstab"
-    else
-      sed -i  -e "/\W\/boot\W/s,^[^ \t]*,${targetDevName%%[0-9]*}1," "$mntDir/etc/fstab"
+    if [ "$useUUID" -eq 1 ]; then
+      uuidp1=$(blkid -o export -s UUID "${targetDevice}1" | \
+                                         sed -ne "/UUID/s/UUID=//p")
+      uuidp2=$(blkid -o export -s UUID "${targetDevice}2" | \
+                                        sed -ne "/UUID/s/UUID=//p")
     fi
-    sed -i  -e "/\W\/\W/s,^[^ \t]*,${targetDevName}," "$mntDir/etc/fstab"
+    msg "info: fixing $mntDir/etc/fstab"
+    if [ "$useUUID" -eq 1 ]; then
+      sed -i  -e "/\W\/boot\W/s,^[^ \t]*,UUID=$uuidp1," "$mntDir/etc/fstab"
+      sed -i  -e "/\W\/\W/s,^[^ \t]*,UUID=$uuidp2," "$mntDir/etc/fstab"
+    else
+      sed -i  -e "/\W\/boot\W/s,^[^ \t]*,${targetDevName}1," "$mntDir/etc/fstab"
+      sed -i  -e "/\W\/\W/s,^[^ \t]*,${targetDevName}2," "$mntDir/etc/fstab"
+    fi
+
     msg "info: fixing $mntDir/boot/cmdline.txt"
-    sed -i -e "s,root=[^ ]*,root=${targetDevName}," "$mntDir/boot/cmdline.txt"
+    if [ "$useUUID" -eq 1 ]; then
+      sed -i -e "s,root=[^ ]*,root=UUID=$uuidp2," "$mntDir/boot/cmdline.txt"
+    else
+      sed -i -e "s,root=[^ ]*,root=${targetDevName}2," "$mntDir/boot/cmdline.txt"
+    fi
+
+  elif [ "$targetType" = "partition" ]; then
+    # Note targetDevName/targetDevice is a partition-device name here
+    if [ "$useUUID" -eq 1 ]; then
+      devName="${targetDevice%%[0-9]*}"
+      uuidp1=$(blkid -o export -s UUID "${devName}1" | \
+                                         sed -ne "/UUID/s/UUID=//p")
+      uuidroot=$(blkid -o export -s UUID "$targetDevice" | \
+                                        sed -ne "/UUID/s/UUID=//p")
+    fi
+
+    msg "info: fixing $mntDir/etc/fstab"
+    if [ "$useUUID" -eq 1 ]; then
+      sed -i  -e "/\W\/boot\W/s,^[^ \t]*,UUID=$uuidp1," "$mntDir/etc/fstab"
+      sed -i  -e "/\W\/\W/s,^[^ \t]*,UUID=$uuidroot," "$mntDir/etc/fstab"
+    else
+      if [ "${targetDevName:0:13}" = "/dev/mmcblk0p" ]; then
+        sed -i  -e "/\W\/boot\W/s,^[^ \t]*,/dev/mmcblk0p1," "$mntDir/etc/fstab"
+      else
+        sed -i  -e "/\W\/boot\W/s,^[^ \t]*,${targetDevName%%[0-9]*}1," "$mntDir/etc/fstab"
+      fi
+      sed -i  -e "/\W\/\W/s,^[^ \t]*,${targetDevName}," "$mntDir/etc/fstab"
+    fi
+
+    msg "info: fixing $mntDir/boot/cmdline.txt"
+    if [ "$useUUID" -eq 1 ]; then
+      sed -i -e "s,root=[^ ]*,root=UUID=$uuidroot," "$mntDir/boot/cmdline.txt"
+    else
+      sed -i -e "s,root=[^ ]*,root=${targetDevName}," "$mntDir/boot/cmdline.txt"
+    fi
   fi
 }
 
