@@ -30,6 +30,7 @@ must be run as root and has builtin help:
     
         -k          keep all files
         -Q          prepare image for Qemu (needs image-file as target)
+        -U          use UUIDs instead of device-names
         -L logfile  write log-messages additionally to given logfile
         -1 script   run the given script after  copying the image to SD
         -2 script   run the given script after  resizing/partition creation
@@ -231,3 +232,6 @@ you would use the command
     apiinst -i ... -t /dev/sdb3=/dev/sda3 ...
 
 to install to `/dev/sdb3` and use `/dev/sda3` during runtime.
+
+Instead of renaming the target, you could use the new option `-U`. This
+will use UUIDs in `/boot/cmdline.txt` and `/etc/fstab`.
