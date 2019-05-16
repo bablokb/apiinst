@@ -846,11 +846,11 @@ updateFiles() {
       sed -i  -e "/\W\/\W/s,^[^ \t]*,${targetDevName}2," "$mntDir/etc/fstab"
     fi
 
-    msg "info: fixing $mntDir/boot/cmdline.txt"
+    msg "info: fixing $mntDir/boot/$bootFile"
     if [ "$useUUID" -eq 1 ]; then
-      sed -i -e "s,root=[^ ]*,root=UUID=$uuidp2," "$mntDir/boot/cmdline.txt"
+      sed -i -e "s,${bootParm}=[^ ]*,${bootParm}=UUID=$uuidp2," "$mntDir/boot/$bootFile"
     else
-      sed -i -e "s,root=[^ ]*,root=${targetDevName}2," "$mntDir/boot/cmdline.txt"
+      sed -i -e "s,${bootParm}=[^ ]*,${bootParm}=${targetDevName}2," "$mntDir/boot/$bootFile"
     fi
 
   elif [ "$targetType" = "partition" ]; then
@@ -876,11 +876,11 @@ updateFiles() {
       sed -i  -e "/\W\/\W/s,^[^ \t]*,${targetDevName}," "$mntDir/etc/fstab"
     fi
 
-    msg "info: fixing $mntDir/boot/cmdline.txt"
+    msg "info: fixing $mntDir/boot/$bootFile"
     if [ "$useUUID" -eq 1 ]; then
-      sed -i -e "s,root=[^ ]*,root=UUID=$uuidroot," "$mntDir/boot/cmdline.txt"
+      sed -i -e "s,${bootParm}=[^ ]*,${bootParm}=UUID=$uuidroot," "$mntDir/boot/$bootFile"
     else
-      sed -i -e "s,root=[^ ]*,root=${targetDevName}," "$mntDir/boot/cmdline.txt"
+      sed -i -e "s,${bootParm}=[^ ]*,${bootParm}=${targetDevName}," "$mntDir/boot/$bootFile"
     fi
   fi
 }
@@ -956,9 +956,9 @@ copyBootPartition() {
 fixupPartitions() {
   local mntDir=`mktemp -d --tmpdir apiinst.XXXXXX`
 
-  msg "info: fixing /boot/cmdline.txt on boot-device"
+  msg "info: fixing /boot/$bootFile on boot-device"
   mount "${bootDevice}1" "$mntDir"
-  sed -i -e 's!root=[^ ]*!root=/dev/sda2!' "$mntDir/cmdline.txt"
+  sed -i -e 's!${bootParm}=[^ ]*!${bootParm}=/dev/sda2!' "$mntDir/$bootFile"
   sync
   umount "$mntDir"
 
@@ -1002,6 +1002,19 @@ fix4Qemu() {
   umount "$mntDir/boot" && umount "$mntDir" && rm -fr "$mntDir"
 }
 
+# query environment (Raspbian or Armbian)   ----------------------------------
+
+getEnvironment() {
+  declare -g bootFile bootParm
+  if [ -f "$mntDir/etc/armbian-release" ]; then
+    bootFile="armbianEnv.txt"
+    bootParm="rootdev"
+  else
+    bootFile="cmdline.txt"
+    bootParm="root"
+  fi
+}
+
 # wrapper (for easy logging)   -----------------------------------------------
 
 main() {
@@ -1039,6 +1052,9 @@ main() {
   # copy template-files
   mountPartitions
   copyFiles
+
+  # update files (first set environment)
+  getEnvironment
   updateFiles
 
   if [ -n "$phase3Script" ]; then
