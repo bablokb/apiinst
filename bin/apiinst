@@ -792,10 +792,10 @@ updateFiles() {
     if [ "$useUUID" -eq 1 ]; then
       uuid=$(blkid -o export -s UUID "${targetDevice}$nrHome" | \
                                         sed -ne "/UUID/s/UUID=//p")
-      echo -e "\n#\nUUID=$uuid  /home auto noatime,acl,user_xattr 1 2" >> \
+      echo -e "\n#\nUUID=$uuid  /home auto noatime,acl,user_xattr 0 0" >> \
                                                              "$mntDir/etc/fstab"
     else
-      echo -e "\n#\n${targetDevName}$nrHome  /home auto noatime,acl,user_xattr 1 2" >> \
+      echo -e "\n#\n${targetDevName}$nrHome  /home auto noatime,acl,user_xattr 0 0" >> \
                                                              "$mntDir/etc/fstab"
     fi
   fi
@@ -806,7 +806,7 @@ updateFiles() {
       echo -e "\n#\nUUID=$uuid  /$MNT_DATA auto noatime,acl,user_xattr 1 2" >> \
                                                              "$mntDir/etc/fstab"
     else
-      echo -e "\n#\n${targetDevName}$nrData  /$MNT_DATA auto noatime,acl,user_xattr 1 2" >> \
+      echo -e "\n#\n${targetDevName}$nrData  /$MNT_DATA auto noatime,acl,user_xattr 0 0" >> \
                                                              "$mntDir/etc/fstab"
     fi
   fi
