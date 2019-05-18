@@ -956,19 +956,25 @@ copyBootPartition() {
 fixupPartitions() {
   local mntDir=`mktemp -d --tmpdir apiinst.XXXXXX`
 
-  msg "info: fixing /boot/$bootFile on boot-device"
-  mount "${bootDevice}1" "$mntDir"
-  sed -i -e 's!${bootParm}=[^ ]*!${bootParm}=/dev/sda2!' "$mntDir/$bootFile"
-  sync
-  umount "$mntDir"
+  # fix reference to root-device if we use separate boot-device
+  # UUIDs automagically take care of this, otherweise assume /dev/sda2
+  if [ "$useUUID" -ne 1 ]; then
+    msg "info: fixing /boot/$bootFile on boot-device"
+    mount "${bootDevice}1" "$mntDir"
+    sed -i -e 's!${bootParm}=[^ ]*!${bootParm}=/dev/sda2!' "$mntDir/$bootFile"
+    sync
+    umount "$mntDir"
+  fi
 
-  msg "info: fixing /etc/fstab on root-device"
-  mount "${targetDevice}2" "$mntDir"
-  sed -i -e '/home/s/mmcblk0p/sda/' \
+  if [ "$useUUID" -ne 1 ]; then
+    msg "info: fixing /etc/fstab on root-device"
+    mount "${targetDevice}2" "$mntDir"
+    sed -i -e '/home/s/mmcblk0p/sda/' \
          -e "/$MNT_DATA/s/mmcblk0p/sda/" \
          -e '/swap/s/mmcblk0p/sda/' \
          -e '/\W\/\W/s!^[^ \t]*!/dev/sda2!' "$mntDir/etc/fstab"
-  umount "$mntDir" && rm -fr "$mntDir"
+    umount "$mntDir" && rm -fr "$mntDir"
+  fi
 }
 
 # apply fixes for Qemu   -----------------------------------------------------
