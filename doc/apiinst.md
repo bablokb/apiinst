@@ -16,6 +16,7 @@ must be run as root and has builtin help:
     
         -P          preparation mode
     
+        -R size     force root-partition of given size
         -H size     create a home-partition of given size (default: no home)
                     (use size>0 or 'rest')
         -D size     create a data-partition of given size (default: no data)
