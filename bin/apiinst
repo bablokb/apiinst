@@ -76,6 +76,7 @@ usage() {
                       (name defaults to /dev/mmcblk0p)\n\
     -B boot           boot device (optional, target device is USB-HDD/SSD)\n\n\
     -P                preparation mode\n\n\
+    -R size           force root-partition of given size\n\
     -H size           create a home-partition of given size (default: no home)\n\
                       (use size>0 or 'rest')\n\
     -D size           create a data-partition of given size (default: no data)\n\
@@ -105,6 +106,7 @@ setDefaults() {
   nrHome=""
   nrData=""
   nrSwap=""
+  sizeRootNew=""
   newPartsNr=1
   prepMode=0
   delPartitionCmd="d\n2\n"
@@ -124,12 +126,13 @@ setDefaults() {
 # parse arguments and set variables -------------------------------------------
 
 parseArguments() {
-  while getopts ":i:t:B:L:H:D:S:Y:nkUQP1:2:3:vhd" opt; do
+  while getopts ":i:t:B:L:R:H:D:S:Y:nkUQP1:2:3:vhd" opt; do
     case $opt in
       i) sourceImage="$OPTARG";;
       t) targetDevice="$OPTARG";;
       B) bootDevice="$OPTARG";;
       L) logFile="$OPTARG"; rm -f "$logFile";;
+      R) sizeRootNew="$OPTARG";;
       H) addPart "H" "$OPTARG";;
       D) addPart "D" "$OPTARG";;
       S) addPart "S" "$OPTARG";;
@@ -438,7 +441,13 @@ calcSizes() {
   msg "info: sizeDev:   $sizeDev"
   let sizeRoot=$(sfdisk -s "$targetDevice"2)*2
   msg "info: sizeRoot:   $sizeRoot"
-  
+
+  if [ -z "$sizeRootNew" ]; then
+    sizeRootNew="$sizeRoot"
+  else
+    sizeRootNew=$(convertSize "$sizeRootNew")
+  fi
+
   # sizeUsed: up to last sector of second partition
   read d1 startRoot sizeUsed d2 < <(fdisk -l "$targetDevice" | tail -n 1)
   let sizeUsed+=1
@@ -462,6 +471,9 @@ calcSizes() {
     fi
     msg "info: size${newPartsType[$index]}:      ${newPartsSize[$index]}"
   done
+  if [ "$sizeRootNew" -ne "$sizeRoot" ]; then
+    let sizeNeeded+=sizeRootNew-sizeRoot
+  fi
 
   msg "info: sizeNeeded: $sizeNeeded"
   if [ $sizeFree -lt $sizeNeeded ]; then
@@ -471,14 +483,16 @@ calcSizes() {
 
   # calculate additional size for root (aligned to 2048-byte boundary)
   let addRoot=0
-  if [ $expand -eq 1 -a $haveRest -eq 0 ]; then
+  if [ $sizeRootNew -ne $sizeRoot ]; then
+    let addRoot=\(sizeRootNew-sizeRoot\)/2048*2048
+  elif [ $expand -eq 1 -a $haveRest -eq 0 ]; then
     let addRoot=\(sizeFree-sizeNeeded\)/2048*2048
   fi
   msg "info: addRoot:    $addRoot"
 
   # begin of free space
-  let startFree=sizeUsed
-  msg "info: startFree:  $startFree"
+  let startFree=sizeUsed+addRoot
+  msg "info: startFree:  $startFree (corrected for root-size)"
 }
 
 # resize root filesystem of SD-card   -----------------------------------------
@@ -489,10 +503,8 @@ resizeRoot() {
   [ $addRoot -eq 0 ] && return
 
   [ $addRoot -lt 0 ] && change="-"
-  let newSize=sizeRoot+addRoot-1
+  let newSize=sizeRoot+addRoot
   msg "info: resizing root to $newSize"
-
-  let startFree+=addRoot
 
   # check existing fs
   msg "info: checking existing root-fs"
@@ -502,13 +514,14 @@ resizeRoot() {
     exit 3
   fi
 
-  if [ "$change" == "-" ]; then
+  if [ "$change" = "-" ]; then
     msg "info: shrinking existing root-fs"
-    resize2fs "${targetDevice}2" "$newSize"
+    resize2fs "${targetDevice}2" "${newSize}s"
   fi
 
   msg "info: delete and recreate root partition with new size $newSize"
 
+  let newSize-=1
   # resize partition
   #        /- delete
   #        |  /- partition nr. 2
@@ -1092,4 +1105,4 @@ main() {
 
 setDefaults
 parseArguments "$@"
-main | tee -a "$logFile" >&2
+main |& tee -a "$logFile" >&2
