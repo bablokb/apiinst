@@ -215,12 +215,27 @@ checkArguments() {
   elif [ "${targetDevice:0:4}" = "/dev" ]; then
     msg "error: device $targetDevice does not exist!"
     exit 3
+  elif [ -d "$targetDevice" ]; then
+    if [ $(ls -1 "$targetDevice" | wc -l) -gt 0 ]; then
+      msg "error: directory $targetDevice is not empty!"
+      exit 3
+    fi
+    targetDir="$targetDevice"
+    targetType="partition"    # we treat directories like partitions
+    if [ "${targetDevName:0:4}" != "/dev" ]; then
+      msg "error: device-name for target-type directory required!"
+      exit 3
+    fi
   else
     targetType="image"
     targetDeviceFile="$targetDevice"
     msg "warning: assuming $targetDevice is an image-file"
   fi
-  msg "info: target-type is: $targetType"
+  if [ -n "$targetDir" ]; then
+    msg "info: target-type is: directory"
+  else
+    msg "info: target-type is: $targetType"
+  fi
 
   # check boot device
   if [ -n "$bootDevice" ]; then
@@ -242,6 +257,10 @@ checkArguments() {
   if [ "$targetType" = "partition" ]; then
     if [ $newPartsCount -gt 0 ]; then
       msg "error: options -H/-D/-S/-Y not supported if target is a partition!"
+      exit 3
+    fi
+    if [ -n "$targetDir" -a "$useUUID" -eq 1 ]; then
+      msg "error:  option -U is invalid if target is a directory!"
       exit 3
     fi
   fi
@@ -327,9 +346,13 @@ copy2part() {
   mount "${srcDevice}p1" "$srcMount/boot"
 
   # mount target-partition
-  destMount=`mktemp -d --tmpdir apiinst.XXXXXX`
-  msg "info: mounting target-partition $targetDevice to $destMount"
-  mount "$targetDevice" "$destMount"
+  if [ -z "$targetDir" ]; then
+    destMount=`mktemp -d --tmpdir apiinst.XXXXXX`
+    msg "info: mounting target-partition $targetDevice to $destMount"
+    mount "$targetDevice" "$destMount"
+  else
+    destMount="$targetDir"
+  fi
 
   # copy files
   msg "info: copying files from $srcImage to $targetDevice"
@@ -339,7 +362,7 @@ copy2part() {
 
   # cleanup
   msg "info: cleanup of mounts"
-  umount "$destMount" && rm -fr "$destMount"
+  [ -z "$targetDir" ] && umount "$destMount" && rm -fr "$destMount"
   umount "$srcMount/boot"
   umount "$srcMount" && rm -fr "$srcMount"
   losetup -D "$srcDevice"
@@ -725,6 +748,10 @@ moveHome() {
 # mount system from SD   ------------------------------------------------------
 
 mountPartitions() {
+  if [ -n "$targetDir" ]; then
+    mntDir="$targetDir"
+    return
+  fi
   mntDir=`mktemp -d --tmpdir apiinst.XXXXXX`
 
   # handle target-type "partition"
@@ -913,10 +940,10 @@ umountPartitions() {
     msg "info: unmounting ${targetDevice}1"
     umount "$mntDir/boot"
     msg "info: unmounting ${targetDevice}2"
-  else
+  elif [ -z "$targetDir" ]; then
     msg "info: unmounting ${targetDevice}"
   fi
-  umount "$mntDir" && rm -fr "$mntDir"
+  [ -z "$targetDir" ] && umount "$mntDir" && rm -fr "$mntDir"
 }
 
 # adjust fake HW-clock for preparation-mode   --------------------------------
