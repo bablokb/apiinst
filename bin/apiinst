@@ -555,7 +555,8 @@ resizeRoot() {
   #        |  |  |  |  |  |             /- new size or last sector or empty
   #        |  |  |  |  |  |             |            /- write table
   #        v  v  v  v  v  v             v            v
-  echo -e "d\n2\nn\np\n2\n${startRoot}\n+${newSize}\nw\n" | fdisk "$targetDevice"
+  echo -e "d\n2\nn\np\n2\n${startRoot}\n+${newSize}\nw\n" | \
+                                             fdisk "$targetDevice"
 
   msg "info: sleeping 3 second before rereading partition-table"
   sleep 3
@@ -691,7 +692,7 @@ createPartition() {
   fdiskcmd="n\n${pType}${pNr}${pStart}\n${pSize}\n${pHex}w\np\n"
 
   msg "info: fdisk-command: $fdiskcmd"
-  echo -e "$fdiskcmd" | fdisk "$targetDevice"
+  echo -e "$fdiskcmd" | fdisk -W always "$targetDevice"
 
   msg "info: sleeping 3 second before rereading partition-table"
   sleep 3
@@ -985,7 +986,7 @@ copyBootPartition() {
   #                          /- write table
   #                          |
   #                          v
-  echo -e "${delPartitionCmd}w\n" | fdisk "$bootDevice"
+  echo -e "${delPartitionCmd}w\n" | fdisk -W always "$bootDevice"
   msg "info: sleeping 3 second before rereading partition-table"
   sleep 3
   partprobe
