@@ -8,7 +8,6 @@ Later
 -----
 
 - bin/apiinst
-  * high:   add option for explicit root-size
   * high:   remove init=/usr/lib/raspi-config/init_resize.sh from cmdline.txt
             (unless -n is specified)
   * low:    enable optional fs-type for -D and -H, e.g.: -D 100G/xfs
