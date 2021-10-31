@@ -4,6 +4,9 @@ TODO
 Bugs
 ----
 
+- use -q for mke2fs
+
+
 Later
 -----
 
