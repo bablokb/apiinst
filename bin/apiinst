@@ -7,27 +7,11 @@
 # If your internet-connection is stable and you see no need to store
 # the image locally, you can also use a http-url as a source.
 # 
-# TODO:
-# 
-# Test cases:
-#   - direct http download
-#   + simple dd:                    apiinst -i img -t /dev/sdb -n
-#   + expand root:                  apiinst -i img -t /dev/sdb
-#   + create home (512M):           apiinst -i img -t /dev/sdb -H 512M
-#   + create home (512M, no exp):   apiinst -i img -t /dev/sdb -H 512M -n
-#   + create home (rest):           apiinst -i img -t /dev/sdb -H rest
-#   + create swap (512M):           apiinst -i img -t /dev/sdb -S 512M
-#   + create swap (512M, no exp):   apiinst -i img -t /dev/sdb -S 512M -n
-#   + create swap (rest):           apiinst -i img -t /dev/sdb -S rest
-#   + create home (rest) and swap:  apiinst -i img -t /dev/sdb -H rest -S 512M
-#   + create home and swap (rest):  apiinst -i img -t /dev/sdb -H 512M -S rest
-#   + create home and swap:         apiinst -i img -t /dev/sdb -H 512M -S 512M
-#   + create home and swap (no ex): apiinst -i img -t /dev/sdb -H 512M -S 512M -n
-# 
-# $Author: bablokb $
-# $Revision: 1.5 $
-#
+# Author: Bernhard Bablok
 # License: GPL3
+#
+# Website: https://github.com/bablokb/apiinst
+#
 # -----------------------------------------------------------------------------
 
 # some constants   ------------------------------------------------------------
@@ -226,6 +210,12 @@ checkArguments() {
       msg "error: device-name for target-type directory required!"
       exit 3
     fi
+  elif grep -q ':' <<< "$targetDevice"; then
+    targetType="remote"
+    if [ "${targetDevName:0:4}" != "/dev" ]; then
+      msg "error: device-name for remote target required!"
+      exit 3
+    fi
   else
     targetType="image"
     targetDeviceFile="$targetDevice"
@@ -346,7 +336,9 @@ copy2part() {
   mount "${srcDevice}p1" "$srcMount/boot"
 
   # mount target-partition
-  if [ -z "$targetDir" ]; then
+  if [ "targetType" = "remote" ]; then
+    destMount="$targetDevice/"
+  elif [ -z "$targetDir" ]; then
     destMount=`mktemp -d --tmpdir apiinst.XXXXXX`
     msg "info: mounting target-partition $targetDevice to $destMount"
     mount "$targetDevice" "$destMount"
@@ -357,12 +349,18 @@ copy2part() {
   # copy files
   msg "info: copying files from $srcImage to $targetDevice"
   rsync -axHAXS --delete "$srcMount/" "$destMount"
-  rsync -axHAXS --delete "$srcMount/boot/" "$destMount/boot"
+  if [ "targetType" = "remote" ]; then
+    rsync -axHAXS --delete "$srcMount/boot" "$destMount/_boot"
+  else
+    rsync -axHAXS --delete "$srcMount/boot" "$destMount/boot"
+  fi
   sync
 
   # cleanup
   msg "info: cleanup of mounts"
-  [ -z "$targetDir" ] && umount "$destMount" && rm -fr "$destMount"
+  if [ -z "$targetDir" -a "targetType" != "remote" ]; then
+    umount "$destMount" && rm -fr "$destMount"
+  fi
   umount "$srcMount/boot"
   umount "$srcMount" && rm -fr "$srcMount"
   losetup -D "$srcDevice"
@@ -393,7 +391,7 @@ writeSD() {
   local upcmd="${unpacker[$ext]}"
 
   if [ -n "$upcmd" ]; then
-    if [ "$targetType" = "partition" ]; then
+    if [ "$targetType" = "partition" -o "$targetType" = "remote" ]; then
       # check free space for temporary unzip of image
       # we assume that the compressed images is not less than 1/6 of the source
       local temp_dir="${TMPDIR:-/tmp}"
@@ -414,7 +412,7 @@ writeSD() {
       eval "$pgm" "$sourceImage" | eval "$upcmd" > "$targetDevice"
     fi
   else
-    if [ "$targetType" = "partition" ]; then
+    if [ "$targetType" = "partition" -o "$targetType" = "remote" ]; then
       copy2part "$sourceImage"
     else
       msg "info: dd-ing $sourceImage to $targetDevice"
@@ -749,10 +747,18 @@ moveHome() {
 # mount system from SD   ------------------------------------------------------
 
 mountPartitions() {
+  # handle directory as target
   if [ -n "$targetDir" ]; then
     mntDir="$targetDir"
     return
   fi
+
+  # handle remote destination as target
+  if [ "$targetType" = "remote" ]; then
+    mntDir="$targetDevice/"
+    return
+  fi
+
   mntDir=`mktemp -d --tmpdir apiinst.XXXXXX`
 
   # handle target-type "partition"
@@ -815,18 +821,28 @@ copyFiles() {
 cleanupFiles() {
   local haveCerts="$1"
 
-  msg "info: removing /etc/profile.d/raspi-config.sh"
-  rm -f "$mntDir/etc/profile.d/raspi-config.sh"       # assume we don't need it
+  if [ "$targetType" = "remote" ]; then
+    # TODO: implement remote
+    :
+  else
+    msg "info: removing /etc/profile.d/raspi-config.sh"
+    rm -f "$mntDir/etc/profile.d/raspi-config.sh"       # assume we don't need it
 
-  if [ "$haveCerts" = "1" ]; then
-    msg "info: removing regenerate_ssh_host_keys"
-    find "$mntDir/etc" -name "*regenerate_ssh_host_keys" -exec rm -f {} \;
+    if [ "$haveCerts" = "1" ]; then
+      msg "info: removing regenerate_ssh_host_keys"
+      find "$mntDir/etc" -name "*regenerate_ssh_host_keys" -exec rm -f {} \;
+    fi
   fi
 }
 
 # update files (/etc/fstab, /etc/rc.local)   ----------------------------------
 
 updateFiles() {
+  if [ "$targetType" = "remote" ]; then
+    # TODO: implement remote
+    return
+  fi
+
   # add home and/or swap partition to /etc/fstab
   # Note targetDevName is a block-device name here
   if [ -n "$nrHome" ]; then
@@ -929,6 +945,11 @@ updateFiles() {
 # umount system from SD   -----------------------------------------------------
 
 umountPartitions() {
+  # handle remote destination as target
+  if [ "$targetType" = "remote" ]; then
+    return
+  fi
+
   if [ "$targetType" != "partition" ]; then
     if [ -n "$nrHome" ]; then
       msg "info: unmounting ${targetDevice}$nrHome"
@@ -1078,14 +1099,16 @@ main() {
   fi
 
   # calculate partition sizes (bail out if necessary)
-  [ "$targetType" != "partition" ] && calcSizes
+  if [ "$targetType" != "partition" -a "$targetType" != "remote" ]; then
+    calcSizes
+  fi
 
   if [ -n "$phase1Script" ]; then
      msg "info: running $phase1Script"
      eval "$phase1Script"
   fi
 
-  if [ "$targetType" != "partition" ]; then
+  if [ "$targetType" != "partition" -a "$targetType" != "remote" ]; then
     resizeRoot
     createPartitions
     moveHome           # move files from /home to new partition if necessary
