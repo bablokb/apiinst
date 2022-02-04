@@ -695,12 +695,14 @@ createPartition() {
   msg "info: sleeping 3 second before rereading partition-table"
   sleep 3
   partprobe -s "$targetDevice"
+  msg "info: $targetDevice: $(ls -x $targetDevice*)"
 
   local i=0
   while [ ! -b "${targetDevice}$partNr" -a $i -lt 3 ]; do
     msg "info: sleeping 3 second before rereading partition-table"
     sleep 3
     partprobe -s "$targetDevice"
+    msg "info: $targetDevice: $(ls -x $targetDevice*)"
     let i+=1
   done
   if [ $i -eq 3 ]; then
@@ -905,7 +907,7 @@ updateFiles() {
 
     msg "info: fixing $mntDir/boot/$bootFile"
     if [ "$useUUID" -eq 1 ]; then
-      sed -i -e "s,${bootParm}=[^ ]*,${bootParm}=UUID=$uuidp2," "$mntDir/boot/$bootFile"
+      sed -i -e "s,${bootParm}\([ =]\)[^ ]*,${bootParm}\1UUID=$uuidp2," "$mntDir/boot/$bootFile"
     else
       sed -i -e "s,${bootParm}=[^ ]*,${bootParm}=${targetDevName}2," "$mntDir/boot/$bootFile"
     fi
@@ -935,7 +937,7 @@ updateFiles() {
 
     msg "info: fixing $mntDir/boot/$bootFile"
     if [ "$useUUID" -eq 1 ]; then
-      sed -i -e "s,${bootParm}=[^ ]*,${bootParm}=UUID=$uuidroot," "$mntDir/boot/$bootFile"
+      sed -i -e "s,${bootParm}\([ =]\)[^ ]*,${bootParm}\1UUID=$uuidroot," "$mntDir/boot/$bootFile"
     else
       sed -i -e "s,${bootParm}=[^ ]*,${bootParm}=${targetDevName}," "$mntDir/boot/$bootFile"
     fi
@@ -1075,7 +1077,11 @@ fix4Qemu() {
 getEnvironment() {
   declare -g bootFile bootParm
   if [ -f "$mntDir/etc/armbian-release" ]; then
-    bootFile="armbianEnv.txt"
+    if [ -f "$mntDir/boot/armbianEnv.txt" ]; then
+      bootFile="armbianEnv.txt"
+    else
+      bootFile="boot.ini"
+    fi
     bootParm="rootdev"
   else
     bootFile="cmdline.txt"
