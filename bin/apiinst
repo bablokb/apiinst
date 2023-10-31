@@ -337,6 +337,7 @@ copy2part() {
 
   # mount target-partition
   if [ "targetType" = "remote" ]; then
+    # we don't mount here: destMount is user@host:/some/dir
     destMount="$targetDevice/"
   elif [ -z "$targetDir" ]; then
     destMount=`mktemp -d --tmpdir apiinst.XXXXXX`
@@ -352,7 +353,7 @@ copy2part() {
   if [ "targetType" = "remote" ]; then
     rsync -axHAXS --delete "$srcMount/boot" "$destMount/_boot"
   else
-    rsync -axHAXS --delete "$srcMount/boot" "$destMount/boot"
+    rsync -axHAXS --delete "$srcMount/boot" "$destMount/"
   fi
   sync
 
@@ -825,6 +826,8 @@ cleanupFiles() {
 
   if [ "$targetType" = "remote" ]; then
     # TODO: implement remote
+    #       split mntDir into user@host + dir
+    #       use remote ssh commands
     :
   else
     msg "info: removing /etc/profile.d/raspi-config.sh"
@@ -1140,6 +1143,7 @@ main() {
 
   # move boot-files to backup-directory (needed for pi-boot-switch)
   if [ "$targetType" = "partition" ]; then
+    [ -d "$mntDir/_boot" ] && rm -fr "$mntDir/_boot"
     mv "$mntDir/boot" "$mntDir/_boot"
   fi
   umountPartitions
