@@ -331,30 +331,32 @@ copy2part() {
   srcMount=`mktemp -d --tmpdir apiinst.XXXXXX`
   msg "info: mounting ${srcDevice}p2 to $srcMount"
   mount "${srcDevice}p2" "$srcMount"
-  mkdir -p "$srcMount/boot"
-  msg "info: mounting ${srcDevice}p1 to $srcMount/boot"
-  mount "${srcDevice}p1" "$srcMount/boot"
+  if [ -d "$srcMount/boot/firmware" ]; then
+    # new mountpoint for partition1 starting from Bookworm
+    mp_part1="boot/firmware"
+  else
+    mp_part1="boot"
+  fi
+  msg "info: mounting ${srcDevice}p1 to $srcMount/$mp_part1"
+  mount "${srcDevice}p1" "$srcMount/$mp_part1"
 
   # mount target-partition
   if [ "targetType" = "remote" ]; then
     # we don't mount here: destMount is user@host:/some/dir
     destMount="$targetDevice/"
   elif [ -z "$targetDir" ]; then
+    # target is partition
     destMount=`mktemp -d --tmpdir apiinst.XXXXXX`
     msg "info: mounting target-partition $targetDevice to $destMount"
     mount "$targetDevice" "$destMount"
   else
+    # target is directory
     destMount="$targetDir"
   fi
 
   # copy files
   msg "info: copying files from $srcImage to $targetDevice"
-  rsync -axHAXS --delete "$srcMount/" "$destMount"
-  if [ "targetType" = "remote" ]; then
-    rsync -axHAXS --delete "$srcMount/boot" "$destMount/_boot"
-  else
-    rsync -axHAXS --delete "$srcMount/boot" "$destMount/"
-  fi
+  rsync -aHAXS --delete "$srcMount/" "$destMount"
   sync
 
   # cleanup
@@ -362,7 +364,7 @@ copy2part() {
   if [ -z "$targetDir" -a "targetType" != "remote" ]; then
     umount "$destMount" && rm -fr "$destMount"
   fi
-  umount "$srcMount/boot"
+  umount "$srcMount/$mp_part1"
   umount "$srcMount" && rm -fr "$srcMount"
   losetup -D "$srcDevice"
 }
@@ -739,7 +741,7 @@ moveHome() {
 
   # move files
   msg "info: moving files from /home to new home-partition"
-  mv -f "$mntDirRoot/home/"* "$mntDirHome"       # we assume no dot-files
+  mv -f "$mntDirRoot/home/"* "$mntDirHome"       # no dot in username
   sync
 
   # umount partitions
@@ -775,9 +777,13 @@ mountPartitions() {
   msg "info: mounting ${targetDevice}2 (root-partition)" 
   mount "${targetDevice}2" "$mntDir"
 
-  [ ! -d "$mntDir/boot" ] && mkdir -p "$mntDir/boot"
-  msg "info: mounting ${targetDevice}1 to boot" 
-  mount "${targetDevice}1" "$mntDir/boot"
+  if [ -d "$mntDir/boot/firmware" ]; then
+    mp_part1="boot/firmware"
+  else
+    mp_part1="boot"
+  fi
+  msg "info: mounting ${targetDevice}1 to /$mp_part1"
+  mount "${targetDevice}1" "$mntDir/$mp_part1"
 
   if [ -n "$nrHome" ]; then
     msg "info: mounting ${targetDevice}$nrHome (home-partition)" 
@@ -891,6 +897,12 @@ updateFiles() {
                                                            "$mntDir/etc/rc.local"
   fi
 
+    if [ -d "$mntDir/boot/firmware" ]; then
+      mp_part1="\/boot\/firmware"
+    else
+      mp_part1="\/boot"
+    fi
+
   if [ "$targetType" = "block" ]; then
     # Note targetDevName is a partition-device name here
     if [ "$useUUID" -eq 1 ]; then
@@ -899,20 +911,22 @@ updateFiles() {
       uuidp2=$(blkid -o export -s UUID "${targetDevice}2" | \
                                         sed -ne "/UUID/s/UUID=//p")
     fi
+
     msg "info: fixing $mntDir/etc/fstab"
     if [ "$useUUID" -eq 1 ]; then
-      sed -i  -e "/\W\/boot\W/s,^[^ \t]*,UUID=$uuidp1," "$mntDir/etc/fstab"
+      sed -i  -e "/\W${mp_part1}\W/s,^[^ \t]*,UUID=$uuidp1," "$mntDir/etc/fstab"
       sed -i  -e "/\W\/\W/s,^[^ \t]*,UUID=$uuidp2," "$mntDir/etc/fstab"
     else
-      sed -i  -e "/\W\/boot\W/s,^[^ \t]*,${targetDevName}1," "$mntDir/etc/fstab"
+      sed -i  -e "/\W${mp_part1}\W/s,^[^ \t]*,${targetDevName}1," "$mntDir/etc/fstab"
       sed -i  -e "/\W\/\W/s,^[^ \t]*,${targetDevName}2," "$mntDir/etc/fstab"
     fi
 
+    # /boot/cmdline.txt is either a file or a link to /boot/firmware/cmdline.txt
     msg "info: fixing $mntDir/boot/$bootFile"
     if [ "$useUUID" -eq 1 ]; then
-      sed -i -e "s,${bootParm}\([ =]\)[^ ]*,${bootParm}\1UUID=$uuidp2," "$mntDir/boot/$bootFile"
+      sed --follow-symlinks -i -e "s,${bootParm}\([ =]\)[^ ]*,${bootParm}\1UUID=$uuidp2," "$mntDir/boot/$bootFile"
     else
-      sed -i -e "s,${bootParm}=[^ ]*,${bootParm}=${targetDevName}2," "$mntDir/boot/$bootFile"
+      sed --follow-symlinks -i -e "s,${bootParm}=[^ ]*,${bootParm}=${targetDevName}2," "$mntDir/boot/$bootFile"
     fi
 
   elif [ "$targetType" = "partition" ]; then
@@ -927,22 +941,23 @@ updateFiles() {
 
     msg "info: fixing $mntDir/etc/fstab"
     if [ "$useUUID" -eq 1 ]; then
-      sed -i  -e "/\W\/boot\W/s,^[^ \t]*,UUID=$uuidp1," "$mntDir/etc/fstab"
+      sed -i  -e "/\W${mp_part1}\W/s,^[^ \t]*,UUID=$uuidp1," "$mntDir/etc/fstab"
       sed -i  -e "/\W\/\W/s,^[^ \t]*,UUID=$uuidroot," "$mntDir/etc/fstab"
     else
       if [ "${targetDevName:0:13}" = "/dev/mmcblk0p" ]; then
-        sed -i  -e "/\W\/boot\W/s,^[^ \t]*,/dev/mmcblk0p1," "$mntDir/etc/fstab"
+        sed -i  -e "/\W${mp_part1}\W/s,^[^ \t]*,/dev/mmcblk0p1," "$mntDir/etc/fstab"
       else
-        sed -i  -e "/\W\/boot\W/s,^[^ \t]*,${targetDevName%%[0-9]*}1," "$mntDir/etc/fstab"
+        sed -i  -e "/\W${mp_part1}\W/s,^[^ \t]*,${targetDevName%%[0-9]*}1," "$mntDir/etc/fstab"
       fi
       sed -i  -e "/\W\/\W/s,^[^ \t]*,${targetDevName}," "$mntDir/etc/fstab"
     fi
 
+    # /boot/cmdline.txt is either a file or a link to /boot/firmware/cmdline.txt
     msg "info: fixing $mntDir/boot/$bootFile"
     if [ "$useUUID" -eq 1 ]; then
-      sed -i -e "s,${bootParm}\([ =]\)[^ ]*,${bootParm}\1UUID=$uuidroot," "$mntDir/boot/$bootFile"
+      sed --follow-symlinks -i -e "s,${bootParm}\([ =]\)[^ ]*,${bootParm}\1UUID=$uuidroot," "$mntDir/boot/$bootFile"
     else
-      sed -i -e "s,${bootParm}=[^ ]*,${bootParm}=${targetDevName}," "$mntDir/boot/$bootFile"
+      sed --follow-symlinks -i -e "s,${bootParm}=[^ ]*,${bootParm}=${targetDevName}," "$mntDir/boot/$bootFile"
     fi
   fi
 }
@@ -965,7 +980,12 @@ umountPartitions() {
       umount "$mntDir/$MNT_DATA"
     fi
     msg "info: unmounting ${targetDevice}1"
-    umount "$mntDir/boot"
+    if [ -d "$mntDir/boot/firmware" ]; then
+      mp_part1="boot/firmware"
+    else
+      mp_part1="boot"
+    fi
+    umount "$mntDir/$mp_part1"
     msg "info: unmounting ${targetDevice}2"
   elif [ -z "$targetDir" ]; then
     msg "info: unmounting ${targetDevice}"
@@ -1024,6 +1044,7 @@ fixupPartitions() {
   local mntDir=`mktemp -d --tmpdir apiinst.XXXXXX`
 
   # fix reference to root-device if we use separate boot-device
+  # Note: $mntDir/$bootFile will either use /boot/xxx or /boot/firmware/xxx
   # UUIDs automagically take care of this, otherweise assume /dev/sda2
   if [ "$useUUID" -ne 1 ]; then
     msg "info: fixing /boot/$bootFile on boot-device"
@@ -1052,8 +1073,9 @@ fix4Qemu() {
   mount "${targetDevice}2" "$mntDir"
   mount "${targetDevice}1" "$mntDir/boot"
 
+  # /boot/cmdline.txt is either a file or a link to /boot/firmware/cmdline.txt
   msg "info: fixing /boot/cmdline.txt"
-  sed -i -e 's!root=[^ ]*!root=/dev/sda2!' "$mntDir/boot/cmdline.txt"
+  sed --follow-symlinks -i -e 's!root=[^ ]*!root=/dev/sda2!' "$mntDir/boot/cmdline.txt"
 
   # fix /etc/fstab: replace device ...
   msg "info: fixing /etc/fstab on root-device"
@@ -1144,7 +1166,13 @@ main() {
   # move boot-files to backup-directory (needed for pi-boot-switch)
   if [ "$targetType" = "partition" ]; then
     [ -d "$mntDir/_boot" ] && rm -fr "$mntDir/_boot"
-    mv "$mntDir/boot" "$mntDir/_boot"
+    if [ -d "$mntDir/boot/firmware" ]; then
+      mv "$mntDir/boot/firmware" "$mntDir/_boot"
+      mkdir -p "$mntDir/boot/firmware"
+    else
+      mv "$mntDir/boot" "$mntDir/_boot"
+      mkdir -p "$mntDir/boot"
+    fi
   fi
   umountPartitions
 
