@@ -921,12 +921,14 @@ updateFiles() {
       sed -i  -e "/\W\/\W/s,^[^ \t]*,${targetDevName}2," "$mntDir/etc/fstab"
     fi
 
-    # /boot/cmdline.txt is either a file or a link to /boot/firmware/cmdline.txt
-    msg "info: fixing $mntDir/boot/$bootFile"
+    # cmdline.txt is either in /boot or /boot/firmware
+    msg "info: fixing $mntDir/$mp_part1/$bootFile"
     if [ "$useUUID" -eq 1 ]; then
-      sed --follow-symlinks -i -e "s,${bootParm}\([ =]\)[^ ]*,${bootParm}\1UUID=$uuidp2," "$mntDir/boot/$bootFile"
+      sed -i -e "s,${bootParm}\([ =]\)[^ ]*,${bootParm}\1UUID=$uuidp2," \
+             "$mntDir/$mp_part1/$bootFile"
     else
-      sed --follow-symlinks -i -e "s,${bootParm}=[^ ]*,${bootParm}=${targetDevName}2," "$mntDir/boot/$bootFile"
+      sed -i -e "s,${bootParm}=[^ ]*,${bootParm}=${targetDevName}2," \
+             "$mntDir/$mp_part1/$bootFile"
     fi
 
   elif [ "$targetType" = "partition" ]; then
@@ -952,12 +954,14 @@ updateFiles() {
       sed -i  -e "/\W\/\W/s,^[^ \t]*,${targetDevName}," "$mntDir/etc/fstab"
     fi
 
-    # /boot/cmdline.txt is either a file or a link to /boot/firmware/cmdline.txt
-    msg "info: fixing $mntDir/boot/$bootFile"
+    # cmdline.txt is either in /boot or /boot/firmware
+    msg "info: fixing $mntDir/$mp_part1/$bootFile"
     if [ "$useUUID" -eq 1 ]; then
-      sed --follow-symlinks -i -e "s,${bootParm}\([ =]\)[^ ]*,${bootParm}\1UUID=$uuidroot," "$mntDir/boot/$bootFile"
+      sed -i -e "s,${bootParm}\([ =]\)[^ ]*,${bootParm}\1UUID=$uuidroot," \
+             "$mntDir/$mp_part1/$bootFile"
     else
-      sed --follow-symlinks -i -e "s,${bootParm}=[^ ]*,${bootParm}=${targetDevName}," "$mntDir/boot/$bootFile"
+      sed -i -e "s,${bootParm}=[^ ]*,${bootParm}=${targetDevName}," \
+             "$mntDir/$mp_part1/$bootFile"
     fi
   fi
 }
@@ -1073,9 +1077,9 @@ fix4Qemu() {
   mount "${targetDevice}2" "$mntDir"
   mount "${targetDevice}1" "$mntDir/boot"
 
-  # /boot/cmdline.txt is either a file or a link to /boot/firmware/cmdline.txt
-  msg "info: fixing /boot/cmdline.txt"
-  sed --follow-symlinks -i -e 's!root=[^ ]*!root=/dev/sda2!' "$mntDir/boot/cmdline.txt"
+  # cmdline.txt is either in /boot or /boot/firmware
+  msg "info: fixing $mntDir/$mp_part1/cmdline.txt"
+  sed -i -e 's!root=[^ ]*!root=/dev/sda2!' "$mntDir/$mp_part1/cmdline.txt"
 
   # fix /etc/fstab: replace device ...
   msg "info: fixing /etc/fstab on root-device"
