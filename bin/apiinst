@@ -897,11 +897,13 @@ updateFiles() {
                                                            "$mntDir/etc/rc.local"
   fi
 
-    if [ -d "$mntDir/boot/firmware" ]; then
-      mp_part1="\/boot\/firmware"
-    else
-      mp_part1="\/boot"
-    fi
+  if [ -d "$mntDir/boot/firmware" ]; then
+    mp_part1="\/boot\/firmware"
+    bootPath="/boot/firmware"
+  else
+    mp_part1="\/boot"
+    bootPath="/boot"
+  fi
 
   if [ "$targetType" = "block" ]; then
     # Note targetDevName is a partition-device name here
@@ -922,13 +924,13 @@ updateFiles() {
     fi
 
     # cmdline.txt is either in /boot or /boot/firmware
-    msg "info: fixing $mntDir/$mp_part1/$bootFile"
+    msg "info: fixing $mntDir/$bootPath/$bootFile"
     if [ "$useUUID" -eq 1 ]; then
       sed -i -e "s,${bootParm}\([ =]\)[^ ]*,${bootParm}\1UUID=$uuidp2," \
-             "$mntDir/$mp_part1/$bootFile"
+             "$mntDir/$bootPath/$bootFile"
     else
       sed -i -e "s,${bootParm}=[^ ]*,${bootParm}=${targetDevName}2," \
-             "$mntDir/$mp_part1/$bootFile"
+             "$mntDir/$bootPath/$bootFile"
     fi
 
   elif [ "$targetType" = "partition" ]; then
@@ -955,13 +957,13 @@ updateFiles() {
     fi
 
     # cmdline.txt is either in /boot or /boot/firmware
-    msg "info: fixing $mntDir/$mp_part1/$bootFile"
+    msg "info: fixing $mntDir/$bootPath/$bootFile"
     if [ "$useUUID" -eq 1 ]; then
       sed -i -e "s,${bootParm}\([ =]\)[^ ]*,${bootParm}\1UUID=$uuidroot," \
-             "$mntDir/$mp_part1/$bootFile"
+             "$mntDir/$bootPath/$bootFile"
     else
       sed -i -e "s,${bootParm}=[^ ]*,${bootParm}=${targetDevName}," \
-             "$mntDir/$mp_part1/$bootFile"
+             "$mntDir/$bootPath/$bootFile"
     fi
   fi
 }
