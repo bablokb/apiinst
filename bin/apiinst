@@ -899,6 +899,7 @@ updateFiles() {
     else
       echo -e '#!/bin/bash\n[ -x /usr/local/sbin/apiinst2 ] && /usr/local/sbin/apiinst2 &' > \
                                                            "$mntDir/etc/rc.local"
+      chmod +x "$mntDir/etc/rc.local"
     fi
   fi
 
