@@ -892,9 +892,14 @@ updateFiles() {
 
   # add one-time boot-script apiinst2 to /etc/rc.local
   if [ -f "$mntDir/usr/local/sbin/apiinst2" ]; then
-    sed -i -e '/^exit 0/i\
+    if [ -f "$mntDir/etc/rc.local" ]; then
+      sed -i -e '/^exit 0/i\
 [ -x /usr/local/sbin/apiinst2 ] && /usr/local/sbin/apiinst2 &' \
                                                            "$mntDir/etc/rc.local"
+    else
+      echo -e '#!/bin/bash\n[ -x /usr/local/sbin/apiinst2 ] && /usr/local/sbin/apiinst2 &' > \
+                                                           "$mntDir/etc/rc.local"
+    fi
   fi
 
   if [ -d "$mntDir/boot/firmware" ]; then
