@@ -180,10 +180,12 @@ checkArguments() {
   # Syntax is -t target[=name], e.g. -t /dev/sdb=/dev/sda
   # name defaults to /dev/mmcblk0p[nr]
 
-  targetDevName="${targetDevice#*=}"
-  targetDevice="${targetDevice%=*}"
-  [ "$targetDevName" = "$targetDevice" ] && \
-          targetDevName=$(sed -e "s/sd./mmcblk0p/" <<< "$targetDevice")
+  if [[ "$targetDevice" =~ "=" ]]; then
+    targetDevName="${targetDevice#*=}"
+    targetDevice="${targetDevice%=*}"
+  else
+    targetDevName=$(sed -e "s/sd./mmcblk0p/" <<< "$targetDevice")
+  fi
 
   if [ -b "$targetDevice" ]; then
     if grep -wq "$targetDevice." /etc/mtab; then
